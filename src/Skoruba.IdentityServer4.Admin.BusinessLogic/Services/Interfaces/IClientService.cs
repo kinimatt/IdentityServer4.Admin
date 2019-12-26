@@ -1,13 +1,11 @@
 ﻿using System.Collections.Generic;
 using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Dtos.Configuration;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Shared.Dtos.Common;
-using Skoruba.IdentityServer4.Admin.EntityFramework.Interfaces;
 
 namespace Skoruba.IdentityServer4.Admin.BusinessLogic.Services.Interfaces
 {
-    public interface IClientService<TDbContext> where TDbContext : DbContext, IAdminConfigurationDbContext
+    public interface IClientService
     {
         ClientDto BuildClientViewModel(ClientDto client = null);
 
@@ -33,15 +31,15 @@ namespace Skoruba.IdentityServer4.Admin.BusinessLogic.Services.Interfaces
 
         List<string> GetGrantTypes(string grant, int limit = 0);
 
-        List<SelectItem> GetAccessTokenTypes();
+        List<SelectItemDto> GetAccessTokenTypes();
 
-        List<SelectItem> GetTokenExpirations();
+        List<SelectItemDto> GetTokenExpirations();
 
-        List<SelectItem> GetTokenUsage();
+        List<SelectItemDto> GetTokenUsage();
 
-        List<SelectItem> GetHashTypes();
+        List<SelectItemDto> GetHashTypes();
 
-        List<SelectItem> GetSecretTypes();
+        List<SelectItemDto> GetSecretTypes();
 
         List<string> GetStandardClaims(string claim, int limit = 0);
 
@@ -69,6 +67,6 @@ namespace Skoruba.IdentityServer4.Admin.BusinessLogic.Services.Interfaces
 
         Task<int> DeleteClientPropertyAsync(ClientPropertiesDto clientProperty);
 
-        List<SelectItem> GetProtocolTypes();
+        List<SelectItemDto> GetProtocolTypes();
     }
 }

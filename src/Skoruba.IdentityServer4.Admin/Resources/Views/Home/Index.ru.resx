@@ -118,19 +118,19 @@
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <data name="ButtonApiResources" xml:space="preserve">
-    <value>Api Ресурсы</value>
+    <value>Api ресурсы</value>
   </data>
   <data name="ButtonClients" xml:space="preserve">
     <value>Клиенты</value>
   </data>
   <data name="ButtonIdentityClients" xml:space="preserve">
-    <value>Ресурсы Идентификации</value>
+    <value>Ресурсы идентификации</value>
   </data>
   <data name="ButtonManage" xml:space="preserve">
     <value>Изменить</value>
   </data>
   <data name="ButtonPersistedGrants" xml:space="preserve">
-    <value>Постоянные Права</value>
+    <value>Постоянные права</value>
   </data>
   <data name="ButtonRoles" xml:space="preserve">
     <value>Роли</value>
@@ -140,8 +140,5 @@
   </data>
   <data name="PageSubTitle" xml:space="preserve">
     <value>Управление для IdentityServer4 и Asp.Net Core Identity</value>
-  </data>
-  <data name="PageTitle" xml:space="preserve">
-    <value>Skoruba IdentityServer4 Admin</value>
   </data>
 </root>

@@ -3,69 +3,77 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Skoruba.IdentityServer4.Admin.BusinessLogic.Extensions;
+using Skoruba.AuditLogging.EntityFramework.Entities;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Dtos.Identity;
-using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Extensions;
 using Skoruba.IdentityServer4.Admin.Configuration.Interfaces;
-using Skoruba.IdentityServer4.Admin.EntityFramework.DbContexts;
-using Skoruba.IdentityServer4.Admin.EntityFramework.Identity.Entities.Identity;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Shared.DbContexts;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Shared.Entities.Identity;
 using Skoruba.IdentityServer4.Admin.Helpers;
+using Skoruba.IdentityServer4.Admin.Configuration;
+using Skoruba.IdentityServer4.Admin.Configuration.Constants;
 
 namespace Skoruba.IdentityServer4.Admin
 {
     public class Startup
     {
-        public Startup(IHostingEnvironment env)
+        public Startup(IWebHostEnvironment env, IConfiguration configuration)
         {
             JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
-
-            var builder = new ConfigurationBuilder()
-                    .SetBasePath(env.ContentRootPath)
-                    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-                    .AddJsonFile($"appsettings.{env.EnvironmentName}.json", optional: true, reloadOnChange: true)
-                    .AddEnvironmentVariables();
-
-            if (env.IsDevelopment())
-            {
-                builder.AddUserSecrets<Startup>();
-            }
-
-            Configuration = builder.Build();
-
             HostingEnvironment = env;
+            Configuration = configuration;
         }
 
-        public IConfigurationRoot Configuration { get; }
+        public IConfiguration Configuration { get; }
 
-        public IHostingEnvironment HostingEnvironment { get; }
+        public IWebHostEnvironment HostingEnvironment { get; }
 
         public void ConfigureServices(IServiceCollection services)
         {
-            services.ConfigureRootConfiguration(Configuration);
-            var rootConfiguration = services.BuildServiceProvider().GetService<IRootConfiguration>();
+            var rootConfiguration = CreateRootConfiguration();
+            services.AddSingleton(rootConfiguration);
 
-            services.AddDbContexts<AdminDbContext>(HostingEnvironment, Configuration);
-            services.AddAuthenticationServices<AdminDbContext, UserIdentity, UserIdentityRole>(HostingEnvironment, rootConfiguration.AdminConfiguration);
+            // Add DbContexts for Asp.Net Core Identity, Logging and IdentityServer - Configuration store and Operational store
+            RegisterDbContexts(services);
+
+            // Add Asp.Net Core Identity Configuration and OpenIdConnect auth as well
+            RegisterAuthentication(services);
+            
+            // Add exception filters in MVC
             services.AddMvcExceptionFilters();
 
-            services.AddAdminServices<AdminDbContext>();
+            // Add all dependencies for IdentityServer Admin
+            services.AddAdminServices<IdentityServerConfigurationDbContext, IdentityServerPersistedGrantDbContext, AdminLogDbContext>();
 
-            services.AddAdminAspNetIdentityServices<AdminDbContext, UserDto<string>, string, RoleDto<string>, string, string, string,
+            // Add all dependencies for Asp.Net Core Identity
+            // If you want to change primary keys or use another db model for Asp.Net Core Identity:
+            services.AddAdminAspNetIdentityServices<AdminIdentityDbContext, IdentityServerPersistedGrantDbContext, UserDto<string>, string, RoleDto<string>, string, string, string,
                                 UserIdentity, UserIdentityRole, string, UserIdentityUserClaim, UserIdentityUserRole,
                                 UserIdentityUserLogin, UserIdentityRoleClaim, UserIdentityUserToken,
-                                UsersDto<UserDto<string>, string>, RolesDto<RoleDto<string>,string>, UserRolesDto<RoleDto<string>,string,string>,
+                                UsersDto<UserDto<string>, string>, RolesDto<RoleDto<string>, string>, UserRolesDto<RoleDto<string>, string, string>,
                                 UserClaimsDto<string>, UserProviderDto<string>, UserProvidersDto<string>, UserChangePasswordDto<string>,
-                                RoleClaimsDto<string>>();
+                                RoleClaimsDto<string>, UserClaimDto<string>, RoleClaimDto<string>>();
+            
+            // Add all dependencies for Asp.Net Core Identity in MVC - these dependencies are injected into generic Controllers
+            // Including settings for MVC and Localization
+            // If you want to change primary keys or use another db model for Asp.Net Core Identity:
+            services.AddMvcWithLocalization<UserDto<string>, string, RoleDto<string>, string, string, string,
+                UserIdentity, UserIdentityRole, string, UserIdentityUserClaim, UserIdentityUserRole,
+                UserIdentityUserLogin, UserIdentityRoleClaim, UserIdentityUserToken,
+                UsersDto<UserDto<string>, string>, RolesDto<RoleDto<string>, string>, UserRolesDto<RoleDto<string>, string, string>,
+                UserClaimsDto<string>, UserProviderDto<string>, UserProvidersDto<string>, UserChangePasswordDto<string>,
+                RoleClaimsDto<string>>(Configuration);
 
-            services.AddMvcLocalization();
-            services.AddAuthorizationPolicies();
+            // Add authorization policies for MVC
+            RegisterAuthorization(services);
+
+            // Add audit logging
+            services.AddAuditEventLogging<AdminAuditLogDbContext, AuditLog>(Configuration);
         }
 
-        public void Configure(IApplicationBuilder app, IHostingEnvironment env, ILoggerFactory loggerFactory)
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env, ILoggerFactory loggerFactory)
         {
-            app.AddLogging(loggerFactory, Configuration);
-
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
@@ -75,15 +83,50 @@ namespace Skoruba.IdentityServer4.Admin
                 app.UseExceptionHandler("/Home/Error");
             }
 
+            // Add custom security headers
             app.UseSecurityHeaders();
+
             app.UseStaticFiles();
-            app.ConfigureAuthentificationServices(env);
+
+            UseAuthentication(app);
+
+            // Use Localization
             app.ConfigureLocalization();
 
-            app.UseMvc(routes =>
-            {
-                routes.MapRoute("default", "{controller=Home}/{action=Index}/{id?}");
-            });
+            app.UseRouting();
+            app.UseAuthorization();
+            app.UseEndpoints(endpoint => { endpoint.MapDefaultControllerRoute(); });
+        }
+
+        public virtual void RegisterDbContexts(IServiceCollection services)
+        {
+            services.RegisterDbContexts<AdminIdentityDbContext, IdentityServerConfigurationDbContext, IdentityServerPersistedGrantDbContext, AdminLogDbContext, AdminAuditLogDbContext>(Configuration);
+        }
+
+        public virtual void RegisterAuthentication(IServiceCollection services)
+        {
+            var rootConfiguration = CreateRootConfiguration();
+            services.AddAuthenticationServices<AdminIdentityDbContext, UserIdentity, UserIdentityRole>(rootConfiguration.AdminConfiguration);
+        }
+
+        public virtual void RegisterAuthorization(IServiceCollection services)
+        {
+            var rootConfiguration = CreateRootConfiguration();
+            services.AddAuthorizationPolicies(rootConfiguration);
+        }
+
+        public virtual void UseAuthentication(IApplicationBuilder app)
+        {
+            app.UseAuthentication();
+        }
+
+        protected IRootConfiguration CreateRootConfiguration()
+        {
+            var rootConfiguration = new RootConfiguration();
+            Configuration.GetSection(ConfigurationConsts.AdminConfigurationKey).Bind(rootConfiguration.AdminConfiguration);
+            Configuration.GetSection(ConfigurationConsts.IdentityDataConfigurationKey).Bind(rootConfiguration.IdentityDataConfiguration);
+            Configuration.GetSection(ConfigurationConsts.IdentityServerDataConfigurationKey).Bind(rootConfiguration.IdentityServerDataConfiguration);
+            return rootConfiguration;
         }
     }
 }

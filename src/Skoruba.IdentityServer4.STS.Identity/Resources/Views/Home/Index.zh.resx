@@ -117,25 +117,28 @@
   <resheader name="writer">
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
+  <data name="2FA" xml:space="preserve">
+    <value>双因素身份验证</value>
+  </data>
+  <data name="ChangePassword" xml:space="preserve">
+    <value>更改密码</value>
+  </data>
   <data name="Discovery" xml:space="preserve">
     <value>发现文档</value>
   </data>
   <data name="Grants" xml:space="preserve">
     <value>持久授权</value>
   </data>
-  <data name="LinkSamples" xml:space="preserve">
-    <value>准备好使用样品</value>
+  <data name="Login" xml:space="preserve">
+    <value>登录</value>
   </data>
-  <data name="LinkSource" xml:space="preserve">
-    <value>源代码库</value>
+  <data name="ManagePersonalData" xml:space="preserve">
+    <value>我的个人数据</value>
   </data>
-  <data name="LinkTitle" xml:space="preserve">
-    <value>这是链接到</value>
+  <data name="ManageProfile" xml:space="preserve">
+    <value>我的个人资料</value>
   </data>
   <data name="SubTitle" xml:space="preserve">
-    <value>欢迎来到 Skoruba IdentityServer4</value>
-  </data>
-  <data name="Title" xml:space="preserve">
-    <value>Skoruba IdentityServer4</value>
+    <value>欢迎来到 {0}</value>
   </data>
 </root>

@@ -5,25 +5,25 @@ using System.Linq;
 using System.Threading.Tasks;
 using AutoMapper;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Skoruba.AuditLogging.Services;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Dtos.Identity;
-using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Repositories.Interfaces;
+using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Events.Identity;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Resources;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Services.Interfaces;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Shared.Dtos.Common;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Shared.ExceptionHandling;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Extensions.Common;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Identity.Repositories.Interfaces;
 
 namespace Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Services
 {
-    public class IdentityService<TIdentityDbContext, TUserDto, TUserDtoKey, TRoleDto, TRoleDtoKey, TUserKey, TRoleKey, TUser, TRole, TKey, TUserClaim, TUserRole, 
+    public class IdentityService<TUserDto, TUserDtoKey, TRoleDto, TRoleDtoKey, TUserKey, TRoleKey, TUser, TRole, TKey, TUserClaim, TUserRole,
+        TUserLogin, TRoleClaim, TUserToken,
+        TUsersDto, TRolesDto, TUserRolesDto, TUserClaimsDto,
+        TUserProviderDto, TUserProvidersDto, TUserChangePasswordDto, TRoleClaimsDto> : IIdentityService<TUserDto, TUserDtoKey, TRoleDto, TRoleDtoKey, TUserKey, TRoleKey, TUser, TRole, TKey, TUserClaim, TUserRole,
         TUserLogin, TRoleClaim, TUserToken,
         TUsersDto, TRolesDto, TUserRolesDto, TUserClaimsDto,
         TUserProviderDto, TUserProvidersDto, TUserChangePasswordDto, TRoleClaimsDto>
-        : IIdentityService<TIdentityDbContext, TUserDto, TUserDtoKey, TRoleDto, TRoleDtoKey, TUserKey, TRoleKey, TUser, TRole, TKey, TUserClaim, TUserRole,
-        TUserLogin, TRoleClaim, TUserToken,
-        TUsersDto, TRolesDto, TUserRolesDto, TUserClaimsDto,
-        TUserProviderDto, TUserProvidersDto, TUserChangePasswordDto, TRoleClaimsDto>
-        where TIdentityDbContext : IdentityDbContext<TUser, TRole, TKey, TUserClaim, TUserRole, TUserLogin, TRoleClaim, TUserToken>
         where TUserDto : UserDto<TUserDtoKey>
         where TRoleDto : RoleDto<TRoleDtoKey>
         where TUser : IdentityUser<TKey>
@@ -43,56 +43,80 @@ namespace Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Services
         where TUserChangePasswordDto : UserChangePasswordDto<TUserDtoKey>
         where TRoleClaimsDto : RoleClaimsDto<TRoleDtoKey>
     {
-        private readonly IIdentityRepository<TIdentityDbContext, TUserKey, TRoleKey, TUser, TRole, TKey, TUserClaim, TUserRole, TUserLogin, TRoleClaim, TUserToken> _identityRepository;
-        private readonly IIdentityServiceResources _identityServiceResources;
-        private readonly IMapper _mapper;
+        protected readonly IIdentityRepository<TUserKey, TRoleKey, TUser, TRole, TKey, TUserClaim, TUserRole, TUserLogin, TRoleClaim, TUserToken> IdentityRepository;
+        protected readonly IIdentityServiceResources IdentityServiceResources;
+        protected readonly IMapper Mapper;
+        protected readonly IAuditEventLogger AuditEventLogger;
 
-        public IdentityService(IIdentityRepository<TIdentityDbContext, TUserKey, TRoleKey, TUser, TRole, TKey, TUserClaim, TUserRole, TUserLogin, TRoleClaim, TUserToken> identityRepository,
+        public IdentityService(IIdentityRepository<TUserKey, TRoleKey, TUser, TRole, TKey, TUserClaim, TUserRole, TUserLogin, TRoleClaim, TUserToken> identityRepository,
             IIdentityServiceResources identityServiceResources,
-            IMapper mapper)
+            IMapper mapper,
+            IAuditEventLogger auditEventLogger)
         {
-            _identityRepository = identityRepository;
-            _identityServiceResources = identityServiceResources;
-            _mapper = mapper;
+            IdentityRepository = identityRepository;
+            IdentityServiceResources = identityServiceResources;
+            Mapper = mapper;
+            AuditEventLogger = auditEventLogger;
         }
 
-        public async Task<bool> ExistsUserAsync(string userId)
+        public virtual async Task<bool> ExistsUserAsync(string userId)
         {
-            var exists = await _identityRepository.ExistsUserAsync(userId);
-            if (!exists) throw new UserFriendlyErrorPageException(string.Format(_identityServiceResources.UserDoesNotExist().Description, userId), _identityServiceResources.UserDoesNotExist().Description);
+            var exists = await IdentityRepository.ExistsUserAsync(userId);
+            if (!exists) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.UserDoesNotExist().Description, userId), IdentityServiceResources.UserDoesNotExist().Description);
 
             return true;
         }
 
-        public async Task<bool> ExistsRoleAsync(string roleId)
+        public virtual async Task<bool> ExistsRoleAsync(string roleId)
         {
-            var exists = await _identityRepository.ExistsRoleAsync(roleId);
-            if (!exists) throw new UserFriendlyErrorPageException(string.Format(_identityServiceResources.RoleDoesNotExist().Description, roleId), _identityServiceResources.RoleDoesNotExist().Description);
+            var exists = await IdentityRepository.ExistsRoleAsync(roleId);
+            if (!exists) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.RoleDoesNotExist().Description, roleId), IdentityServiceResources.RoleDoesNotExist().Description);
 
             return true;
         }
 
-        public async Task<TUsersDto> GetUsersAsync(string search, int page = 1, int pageSize = 10)
+        public virtual async Task<TUsersDto> GetUsersAsync(string search, int page = 1, int pageSize = 10)
         {
-            var pagedList = await _identityRepository.GetUsersAsync(search, page, pageSize);
-            var usersDto = _mapper.Map<TUsersDto>(pagedList);
+            var pagedList = await IdentityRepository.GetUsersAsync(search, page, pageSize);
+            var usersDto = Mapper.Map<TUsersDto>(pagedList);
+
+            await AuditEventLogger.LogEventAsync(new UsersRequestedEvent<TUsersDto>(usersDto));
 
             return usersDto;
         }
 
-        public async Task<TRolesDto> GetRolesAsync(string search, int page = 1, int pageSize = 10)
+        public virtual async Task<TUsersDto> GetRoleUsersAsync(string roleId, string search, int page = 1, int pageSize = 10)
         {
-            PagedList<TRole> pagedList = await _identityRepository.GetRolesAsync(search, page, pageSize);
-            var rolesDto = _mapper.Map<TRolesDto>(pagedList);
+            var roleKey = ConvertToKeyFromString(roleId);
+
+            var userIdentityRole = await IdentityRepository.GetRoleAsync(roleKey);
+            if (userIdentityRole == null) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.RoleDoesNotExist().Description, roleId), IdentityServiceResources.RoleDoesNotExist().Description);
+
+            var pagedList = await IdentityRepository.GetRoleUsersAsync(roleId, search, page, pageSize);
+            var usersDto = Mapper.Map<TUsersDto>(pagedList);
+
+            await AuditEventLogger.LogEventAsync(new RoleUsersRequestedEvent<TUsersDto>(usersDto));
+
+            return usersDto;
+        }
+
+        public virtual async Task<TRolesDto> GetRolesAsync(string search, int page = 1, int pageSize = 10)
+        {
+            PagedList<TRole> pagedList = await IdentityRepository.GetRolesAsync(search, page, pageSize);
+            var rolesDto = Mapper.Map<TRolesDto>(pagedList);
+
+            await AuditEventLogger.LogEventAsync(new RolesRequestedEvent<TRolesDto>(rolesDto));
 
             return rolesDto;
         }
 
-        public async Task<(IdentityResult identityResult, TKey roleId)> CreateRoleAsync(TRoleDto role)
+        public virtual async Task<(IdentityResult identityResult, TKey roleId)> CreateRoleAsync(TRoleDto role)
         {
-            var roleEntity = _mapper.Map<TRole>(role);
-            var (identityResult, roleId) = await _identityRepository.CreateRoleAsync(roleEntity);
-            var handleIdentityError = HandleIdentityError(identityResult, _identityServiceResources.RoleCreateFailed().Description, _identityServiceResources.IdentityErrorKey().Description, role);
+            var roleEntity = Mapper.Map<TRole>(role);
+            var (identityResult, roleId) = await IdentityRepository.CreateRoleAsync(roleEntity);
+            var handleIdentityError = HandleIdentityError(identityResult, IdentityServiceResources.RoleCreateFailed().Description, IdentityServiceResources.IdentityErrorKey().Description, role);
+
+            await AuditEventLogger.LogEventAsync(new RoleAddedEvent<TRoleDto>(role));
 
             return (handleIdentityError, roleId);
         }
@@ -100,56 +124,70 @@ namespace Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Services
         private IdentityResult HandleIdentityError(IdentityResult identityResult, string errorMessage, string errorKey, object model)
         {
             if (!identityResult.Errors.Any()) return identityResult;
-            var viewErrorMessages = _mapper.Map<List<ViewErrorMessage>>(identityResult.Errors);
+            var viewErrorMessages = Mapper.Map<List<ViewErrorMessage>>(identityResult.Errors);
 
             throw new UserFriendlyViewException(errorMessage, errorKey, viewErrorMessages, model);
         }
 
-        public async Task<TRoleDto> GetRoleAsync(string roleId)
+        public virtual async Task<TRoleDto> GetRoleAsync(string roleId)
         {
             var roleKey = ConvertToKeyFromString(roleId);
 
-            var userIdentityRole = await _identityRepository.GetRoleAsync(roleKey);
-            if (userIdentityRole == null) throw new UserFriendlyErrorPageException(string.Format(_identityServiceResources.RoleDoesNotExist().Description, roleId), _identityServiceResources.RoleDoesNotExist().Description);
+            var userIdentityRole = await IdentityRepository.GetRoleAsync(roleKey);
+            if (userIdentityRole == null) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.RoleDoesNotExist().Description, roleId), IdentityServiceResources.RoleDoesNotExist().Description);
 
-            var roleDto = _mapper.Map<TRoleDto>(userIdentityRole);
+            var roleDto = Mapper.Map<TRoleDto>(userIdentityRole);
+
+            await AuditEventLogger.LogEventAsync(new RoleRequestedEvent<TRoleDto>(roleDto));
 
             return roleDto;
         }
 
-        public async Task<List<TRoleDto>> GetRolesAsync()
+        public virtual async Task<List<TRoleDto>> GetRolesAsync()
         {
-            var roles = await _identityRepository.GetRolesAsync();
-            var roleDtos = _mapper.Map<List<TRoleDto>>(roles);
+            var roles = await IdentityRepository.GetRolesAsync();
+            var roleDtos = Mapper.Map<List<TRoleDto>>(roles);
+
+            await AuditEventLogger.LogEventAsync(new AllRolesRequestedEvent<TRoleDto>(roleDtos));
 
             return roleDtos;
         }
 
-        public async Task<(IdentityResult identityResult, TKey roleId)> UpdateRoleAsync(TRoleDto role)
+        public virtual async Task<(IdentityResult identityResult, TKey roleId)> UpdateRoleAsync(TRoleDto role)
         {
-            var userIdentityRole = _mapper.Map<TRole>(role);
-            var (identityResult, roleId) = await _identityRepository.UpdateRoleAsync(userIdentityRole);
+            var userIdentityRole = Mapper.Map<TRole>(role);
 
-            var handleIdentityError = HandleIdentityError(identityResult, _identityServiceResources.RoleUpdateFailed().Description, _identityServiceResources.IdentityErrorKey().Description, role);
+            var originalRole = await GetRoleAsync(role.Id.ToString());
+
+            var (identityResult, roleId) = await IdentityRepository.UpdateRoleAsync(userIdentityRole);
+
+            await AuditEventLogger.LogEventAsync(new RoleUpdatedEvent<TRoleDto>(originalRole, role));
+
+            var handleIdentityError = HandleIdentityError(identityResult, IdentityServiceResources.RoleUpdateFailed().Description, IdentityServiceResources.IdentityErrorKey().Description, role);
 
             return (handleIdentityError, roleId);
         }
 
-        public async Task<TUserDto> GetUserAsync(string userId)
+        public virtual async Task<TUserDto> GetUserAsync(string userId)
         {
-            var identity = await _identityRepository.GetUserAsync(userId);
-            if (identity == null) throw new UserFriendlyErrorPageException(string.Format(_identityServiceResources.UserDoesNotExist().Description, userId), _identityServiceResources.UserDoesNotExist().Description);
+            var identity = await IdentityRepository.GetUserAsync(userId);
+            if (identity == null) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.UserDoesNotExist().Description, userId), IdentityServiceResources.UserDoesNotExist().Description);
 
-            var userDto = _mapper.Map<TUserDto>(identity);
+            var userDto = Mapper.Map<TUserDto>(identity);
+
+            await AuditEventLogger.LogEventAsync(new UserRequestedEvent<TUserDto>(userDto));
 
             return userDto;
         }
 
-        public async Task<(IdentityResult identityResult, TKey userId)> CreateUserAsync(TUserDto user)
+        public virtual async Task<(IdentityResult identityResult, TKey userId)> CreateUserAsync(TUserDto user)
         {
-            var userIdentity = _mapper.Map<TUser>(user);
-            var (identityResult, userId) = await _identityRepository.CreateUserAsync(userIdentity);
-            var handleIdentityError = HandleIdentityError(identityResult, _identityServiceResources.UserCreateFailed().Description, _identityServiceResources.IdentityErrorKey().Description, user);
+            var userIdentity = Mapper.Map<TUser>(user);
+            var (identityResult, userId) = await IdentityRepository.CreateUserAsync(userIdentity);
+
+            var handleIdentityError = HandleIdentityError(identityResult, IdentityServiceResources.UserCreateFailed().Description, IdentityServiceResources.IdentityErrorKey().Description, user);
+
+            await AuditEventLogger.LogEventAsync(new UserSavedEvent<TUserDto>(user));
 
             return (handleIdentityError, userId);
         }
@@ -159,13 +197,17 @@ namespace Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Services
         /// </summary>
         /// <param name="user"></param>
         /// <returns></returns>
-        public async Task<(IdentityResult identityResult, TKey userId)> UpdateUserAsync(TUserDto user)
+        public virtual async Task<(IdentityResult identityResult, TKey userId)> UpdateUserAsync(TUserDto user)
         {
-            var userIdentity = _mapper.Map<TUser>(user);
+            var userIdentity = Mapper.Map<TUser>(user);
             await MapOriginalPasswordHashAsync(userIdentity);
 
-            var (identityResult, userId) = await _identityRepository.UpdateUserAsync(userIdentity);
-            var handleIdentityError = HandleIdentityError(identityResult, _identityServiceResources.UserUpdateFailed().Description, _identityServiceResources.IdentityErrorKey().Description, user);
+            var originalUser = await GetUserAsync(user.Id.ToString());
+
+            var (identityResult, userId) = await IdentityRepository.UpdateUserAsync(userIdentity);
+            var handleIdentityError = HandleIdentityError(identityResult, IdentityServiceResources.UserUpdateFailed().Description, IdentityServiceResources.IdentityErrorKey().Description, user);
+
+            await AuditEventLogger.LogEventAsync(new UserUpdatedEvent<TUserDto>(originalUser, user));
 
             return (handleIdentityError, userId);
         }
@@ -177,96 +219,115 @@ namespace Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Services
         /// <returns></returns>
         private async Task MapOriginalPasswordHashAsync(TUser userIdentity)
         {
-            var identity = await _identityRepository.GetUserAsync(userIdentity.Id.ToString());
+            var identity = await IdentityRepository.GetUserAsync(userIdentity.Id.ToString());
             userIdentity.PasswordHash = identity.PasswordHash;
         }
 
-        public async Task<IdentityResult> DeleteUserAsync(string userId, TUserDto user)
+        public virtual async Task<IdentityResult> DeleteUserAsync(string userId, TUserDto user)
         {
-            var identityResult = await _identityRepository.DeleteUserAsync(userId);
+            var identityResult = await IdentityRepository.DeleteUserAsync(userId);
 
-            return HandleIdentityError(identityResult, _identityServiceResources.UserDeleteFailed().Description, _identityServiceResources.IdentityErrorKey().Description, user);
+            await AuditEventLogger.LogEventAsync(new UserDeletedEvent<TUserDto>(user));
+
+            return HandleIdentityError(identityResult, IdentityServiceResources.UserDeleteFailed().Description, IdentityServiceResources.IdentityErrorKey().Description, user);
         }
 
-        public async Task<IdentityResult> CreateUserRoleAsync(TUserRolesDto role)
+        public virtual async Task<IdentityResult> CreateUserRoleAsync(TUserRolesDto role)
         {
-            var identityResult = await _identityRepository.CreateUserRoleAsync(role.UserId.ToString(), role.RoleId.ToString());
+            var identityResult = await IdentityRepository.CreateUserRoleAsync(role.UserId.ToString(), role.RoleId.ToString());
+
+            await AuditEventLogger.LogEventAsync(new UserRoleSavedEvent<TUserRolesDto>(role));
 
             if (!identityResult.Errors.Any()) return identityResult;
 
             var userRolesDto = await BuildUserRolesViewModel(role.UserId, 1);
-            return HandleIdentityError(identityResult, _identityServiceResources.UserRoleCreateFailed().Description, _identityServiceResources.IdentityErrorKey().Description, userRolesDto);
+            
+            return HandleIdentityError(identityResult, IdentityServiceResources.UserRoleCreateFailed().Description, IdentityServiceResources.IdentityErrorKey().Description, userRolesDto);
         }
 
-        public async Task<TUserRolesDto> BuildUserRolesViewModel(TUserDtoKey id, int? page)
+        public virtual async Task<TUserRolesDto> BuildUserRolesViewModel(TUserDtoKey id, int? page)
         {
             var roles = await GetRolesAsync();
             var userRoles = await GetUserRolesAsync(id.ToString(), page ?? 1);
             userRoles.UserId = id;
-            userRoles.RolesList = roles.Select(x => new SelectItem(x.Id.ToString(), x.Name)).ToList();
+            userRoles.RolesList = roles.Select(x => new SelectItemDto(x.Id.ToString(), x.Name)).ToList();
 
             return userRoles;
         }
 
-        public async Task<TUserRolesDto> GetUserRolesAsync(string userId, int page = 1, int pageSize = 10)
+        public virtual async Task<TUserRolesDto> GetUserRolesAsync(string userId, int page = 1, int pageSize = 10)
         {
-            var userExists = await _identityRepository.ExistsUserAsync(userId);
-            if (!userExists) throw new UserFriendlyErrorPageException(string.Format(_identityServiceResources.UserDoesNotExist().Description, userId), _identityServiceResources.UserDoesNotExist().Description);
+            var userExists = await IdentityRepository.ExistsUserAsync(userId);
+            if (!userExists) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.UserDoesNotExist().Description, userId), IdentityServiceResources.UserDoesNotExist().Description);
 
-            var userIdentityRoles = await _identityRepository.GetUserRolesAsync(userId, page, pageSize);
-            var roleDtos = _mapper.Map<TUserRolesDto>(userIdentityRoles);
+            var userIdentityRoles = await IdentityRepository.GetUserRolesAsync(userId, page, pageSize);
+            var roleDtos = Mapper.Map<TUserRolesDto>(userIdentityRoles);
 
-            var user = await _identityRepository.GetUserAsync(userId);
+            var user = await IdentityRepository.GetUserAsync(userId);
             roleDtos.UserName = user.UserName;
+
+            await AuditEventLogger.LogEventAsync(new UserRolesRequestedEvent<TUserRolesDto>(roleDtos));
 
             return roleDtos;
         }
 
-        public async Task<IdentityResult> DeleteUserRoleAsync(TUserRolesDto role)
+        public virtual async Task<IdentityResult> DeleteUserRoleAsync(TUserRolesDto role)
         {
-            var identityResult = await _identityRepository.DeleteUserRoleAsync(role.UserId.ToString(), role.RoleId.ToString());
+            var identityResult = await IdentityRepository.DeleteUserRoleAsync(role.UserId.ToString(), role.RoleId.ToString());
 
-            return HandleIdentityError(identityResult, _identityServiceResources.UserRoleDeleteFailed().Description, _identityServiceResources.IdentityErrorKey().Description, role);
+            await AuditEventLogger.LogEventAsync(new UserRoleDeletedEvent<TUserRolesDto>(role));
+
+            return HandleIdentityError(identityResult, IdentityServiceResources.UserRoleDeleteFailed().Description, IdentityServiceResources.IdentityErrorKey().Description, role);
         }
 
-        public async Task<TUserClaimsDto> GetUserClaimsAsync(string userId, int page = 1, int pageSize = 10)
+        public virtual async Task<TUserClaimsDto> GetUserClaimsAsync(string userId, int page = 1, int pageSize = 10)
         {
-            var userExists = await _identityRepository.ExistsUserAsync(userId);
-            if (!userExists) throw new UserFriendlyErrorPageException(string.Format(_identityServiceResources.UserDoesNotExist().Description, userId), _identityServiceResources.UserDoesNotExist().Description);
+            var userExists = await IdentityRepository.ExistsUserAsync(userId);
+            if (!userExists) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.UserDoesNotExist().Description, userId), IdentityServiceResources.UserDoesNotExist().Description);
 
-            var identityUserClaims = await _identityRepository.GetUserClaimsAsync(userId, page, pageSize);
-            var claimDtos = _mapper.Map<TUserClaimsDto>(identityUserClaims);
+            var identityUserClaims = await IdentityRepository.GetUserClaimsAsync(userId, page, pageSize);
+            var claimDtos = Mapper.Map<TUserClaimsDto>(identityUserClaims);
 
-            var user = await _identityRepository.GetUserAsync(userId);
+            var user = await IdentityRepository.GetUserAsync(userId);
             claimDtos.UserName = user.UserName;
+
+            await AuditEventLogger.LogEventAsync(new UserClaimsRequestedEvent<TUserClaimsDto>(claimDtos));
 
             return claimDtos;
         }
 
-        public async Task<TUserClaimsDto> GetUserClaimAsync(string userId, int claimId)
+        public virtual async Task<TUserClaimsDto> GetUserClaimAsync(string userId, int claimId)
         {
-            var userExists = await _identityRepository.ExistsUserAsync(userId);
-            if (!userExists) throw new UserFriendlyErrorPageException(string.Format(_identityServiceResources.UserDoesNotExist().Description, userId), _identityServiceResources.UserDoesNotExist().Description);
+            var userExists = await IdentityRepository.ExistsUserAsync(userId);
+            if (!userExists) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.UserDoesNotExist().Description, userId), IdentityServiceResources.UserDoesNotExist().Description);
 
-            var identityUserClaim = await _identityRepository.GetUserClaimAsync(userId, claimId);
-            if (identityUserClaim == null) throw new UserFriendlyErrorPageException(string.Format(_identityServiceResources.UserClaimDoesNotExist().Description, userId), _identityServiceResources.UserClaimDoesNotExist().Description);
+            var identityUserClaim = await IdentityRepository.GetUserClaimAsync(userId, claimId);
+            if (identityUserClaim == null) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.UserClaimDoesNotExist().Description, userId), IdentityServiceResources.UserClaimDoesNotExist().Description);
 
-            var userClaimsDto = _mapper.Map<TUserClaimsDto>(identityUserClaim);
+            var userClaimsDto = Mapper.Map<TUserClaimsDto>(identityUserClaim);
+
+            await AuditEventLogger.LogEventAsync(new UserClaimRequestedEvent<TUserClaimsDto>(userClaimsDto));
 
             return userClaimsDto;
         }
 
-        public async Task<IdentityResult> CreateUserClaimsAsync(TUserClaimsDto claimsDto)
+        public virtual async Task<IdentityResult> CreateUserClaimsAsync(TUserClaimsDto claimsDto)
         {
-            var userIdentityUserClaim = _mapper.Map<TUserClaim>(claimsDto);
-            var identityResult = await _identityRepository.CreateUserClaimsAsync(userIdentityUserClaim);
+            var userIdentityUserClaim = Mapper.Map<TUserClaim>(claimsDto);
+            var identityResult = await IdentityRepository.CreateUserClaimsAsync(userIdentityUserClaim);
 
-            return HandleIdentityError(identityResult, _identityServiceResources.UserClaimsCreateFailed().Description, _identityServiceResources.IdentityErrorKey().Description, claimsDto);
+            await AuditEventLogger.LogEventAsync(new UserClaimsSavedEvent<TUserClaimsDto>(claimsDto));
+
+            return HandleIdentityError(identityResult, IdentityServiceResources.UserClaimsCreateFailed().Description, IdentityServiceResources.IdentityErrorKey().Description, claimsDto);
         }
 
-        public async Task<int> DeleteUserClaimsAsync(TUserClaimsDto claim)
+        public virtual async Task<int> DeleteUserClaimsAsync(TUserClaimsDto claim)
         {
-            return await _identityRepository.DeleteUserClaimsAsync(claim.UserId.ToString(), claim.ClaimId);
+            var deleted = await IdentityRepository.DeleteUserClaimsAsync(claim.UserId.ToString(), claim.ClaimId);
+
+            await AuditEventLogger.LogEventAsync(new UserClaimsDeletedEvent<TUserClaimsDto>(claim));
+
+            return deleted;
         }
 
         public virtual TUserDtoKey ConvertUserDtoKeyFromString(string id)
@@ -287,99 +348,130 @@ namespace Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Services
             return (TKey)TypeDescriptor.GetConverter(typeof(TKey)).ConvertFromInvariantString(id);
         }
 
-        public async Task<TUserProvidersDto> GetUserProvidersAsync(string userId)
+        public virtual async Task<TUserProvidersDto> GetUserProvidersAsync(string userId)
         {
-            var userExists = await _identityRepository.ExistsUserAsync(userId);
-            if (!userExists) throw new UserFriendlyErrorPageException(string.Format(_identityServiceResources.UserDoesNotExist().Description, userId), _identityServiceResources.UserDoesNotExist().Description);
+            var userExists = await IdentityRepository.ExistsUserAsync(userId);
+            if (!userExists) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.UserDoesNotExist().Description, userId), IdentityServiceResources.UserDoesNotExist().Description);
 
-            var userLoginInfos = await _identityRepository.GetUserProvidersAsync(userId);
-            var providersDto = _mapper.Map<TUserProvidersDto>(userLoginInfos);
+            var userLoginInfos = await IdentityRepository.GetUserProvidersAsync(userId);
+            var providersDto = Mapper.Map<TUserProvidersDto>(userLoginInfos);
             providersDto.UserId = ConvertUserDtoKeyFromString(userId);
 
-            var user = await _identityRepository.GetUserAsync(userId);
+            var user = await IdentityRepository.GetUserAsync(userId);
             providersDto.UserName = user.UserName;
+
+            await AuditEventLogger.LogEventAsync(new UserProvidersRequestedEvent<TUserProvidersDto>(providersDto));
 
             return providersDto;
         }
 
-        public async Task<IdentityResult> DeleteUserProvidersAsync(TUserProviderDto provider)
+        public virtual async Task<IdentityResult> DeleteUserProvidersAsync(TUserProviderDto provider)
         {
-            var identityResult = await _identityRepository.DeleteUserProvidersAsync(provider.UserId.ToString(), provider.ProviderKey, provider.LoginProvider);
+            var identityResult = await IdentityRepository.DeleteUserProvidersAsync(provider.UserId.ToString(), provider.ProviderKey, provider.LoginProvider);
 
-            return HandleIdentityError(identityResult, _identityServiceResources.UserProviderDeleteFailed().Description, _identityServiceResources.IdentityErrorKey().Description, provider);
+            await AuditEventLogger.LogEventAsync(new UserProvidersDeletedEvent<TUserProviderDto>(provider));
+
+            return HandleIdentityError(identityResult, IdentityServiceResources.UserProviderDeleteFailed().Description, IdentityServiceResources.IdentityErrorKey().Description, provider);
         }
 
-        public async Task<TUserProviderDto> GetUserProviderAsync(string userId, string providerKey)
+        public virtual async Task<TUserProviderDto> GetUserProviderAsync(string userId, string providerKey)
         {
-            var userExists = await _identityRepository.ExistsUserAsync(userId);
-            if (!userExists) throw new UserFriendlyErrorPageException(string.Format(_identityServiceResources.UserDoesNotExist().Description, userId), _identityServiceResources.UserDoesNotExist().Description);
+            var userExists = await IdentityRepository.ExistsUserAsync(userId);
+            if (!userExists) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.UserDoesNotExist().Description, userId), IdentityServiceResources.UserDoesNotExist().Description);
 
-            var identityUserLogin = await _identityRepository.GetUserProviderAsync(userId, providerKey);
-            if (identityUserLogin == null) throw new UserFriendlyErrorPageException(string.Format(_identityServiceResources.UserProviderDoesNotExist().Description, providerKey), _identityServiceResources.UserProviderDoesNotExist().Description);
+            var identityUserLogin = await IdentityRepository.GetUserProviderAsync(userId, providerKey);
+            if (identityUserLogin == null) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.UserProviderDoesNotExist().Description, providerKey), IdentityServiceResources.UserProviderDoesNotExist().Description);
 
-            var userProviderDto = _mapper.Map<TUserProviderDto>(identityUserLogin);
+            var userProviderDto = Mapper.Map<TUserProviderDto>(identityUserLogin);
             var user = await GetUserAsync(userId);
             userProviderDto.UserName = user.UserName;
+
+            await AuditEventLogger.LogEventAsync(new UserProviderRequestedEvent<TUserProviderDto>(userProviderDto));
 
             return userProviderDto;
         }
 
-        public async Task<IdentityResult> UserChangePasswordAsync(TUserChangePasswordDto userPassword)
+        public virtual async Task<IdentityResult> UserChangePasswordAsync(TUserChangePasswordDto userPassword)
         {
-            var userExists = await _identityRepository.ExistsUserAsync(userPassword.UserId.ToString());
-            if (!userExists) throw new UserFriendlyErrorPageException(string.Format(_identityServiceResources.UserDoesNotExist().Description, userPassword.UserId), _identityServiceResources.UserDoesNotExist().Description);
+            var userExists = await IdentityRepository.ExistsUserAsync(userPassword.UserId.ToString());
+            if (!userExists) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.UserDoesNotExist().Description, userPassword.UserId), IdentityServiceResources.UserDoesNotExist().Description);
 
-            var identityResult = await _identityRepository.UserChangePasswordAsync(userPassword.UserId.ToString(), userPassword.Password);
+            var identityResult = await IdentityRepository.UserChangePasswordAsync(userPassword.UserId.ToString(), userPassword.Password);
 
-            return HandleIdentityError(identityResult, _identityServiceResources.UserChangePasswordFailed().Description, _identityServiceResources.IdentityErrorKey().Description, userPassword);
+            await AuditEventLogger.LogEventAsync(new UserPasswordChangedEvent(userPassword.UserName));
+
+            return HandleIdentityError(identityResult, IdentityServiceResources.UserChangePasswordFailed().Description, IdentityServiceResources.IdentityErrorKey().Description, userPassword);
         }
 
-        public async Task<IdentityResult> CreateRoleClaimsAsync(TRoleClaimsDto claimsDto)
+        public virtual async Task<IdentityResult> CreateRoleClaimsAsync(TRoleClaimsDto claimsDto)
         {
-            var identityRoleClaim = _mapper.Map<TRoleClaim>(claimsDto);
-            var identityResult = await _identityRepository.CreateRoleClaimsAsync(identityRoleClaim);
+            var identityRoleClaim = Mapper.Map<TRoleClaim>(claimsDto);
+            var identityResult = await IdentityRepository.CreateRoleClaimsAsync(identityRoleClaim);
 
-            return HandleIdentityError(identityResult, _identityServiceResources.RoleClaimsCreateFailed().Description, _identityServiceResources.IdentityErrorKey().Description, claimsDto);
+            await AuditEventLogger.LogEventAsync(new RoleClaimsSavedEvent<TRoleClaimsDto>(claimsDto));
+
+            return HandleIdentityError(identityResult, IdentityServiceResources.RoleClaimsCreateFailed().Description, IdentityServiceResources.IdentityErrorKey().Description, claimsDto);
         }
 
-        public async Task<TRoleClaimsDto> GetRoleClaimsAsync(string roleId, int page = 1, int pageSize = 10)
+        public virtual async Task<TRoleClaimsDto> GetRoleClaimsAsync(string roleId, int page = 1, int pageSize = 10)
         {
-            var roleExists = await _identityRepository.ExistsRoleAsync(roleId);
-            if (!roleExists) throw new UserFriendlyErrorPageException(string.Format(_identityServiceResources.RoleDoesNotExist().Description, roleId), _identityServiceResources.RoleDoesNotExist().Description);
+            var roleExists = await IdentityRepository.ExistsRoleAsync(roleId);
+            if (!roleExists) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.RoleDoesNotExist().Description, roleId), IdentityServiceResources.RoleDoesNotExist().Description);
 
-            var identityRoleClaims = await _identityRepository.GetRoleClaimsAsync(roleId, page, pageSize);
-            var roleClaimDtos = _mapper.Map<TRoleClaimsDto>(identityRoleClaims);
+            var identityRoleClaims = await IdentityRepository.GetRoleClaimsAsync(roleId, page, pageSize);
+            var roleClaimDtos = Mapper.Map<TRoleClaimsDto>(identityRoleClaims);
             var roleDto = await GetRoleAsync(roleId);
             roleClaimDtos.RoleName = roleDto.Name;
+
+            await AuditEventLogger.LogEventAsync(new RoleClaimsRequestedEvent<TRoleClaimsDto>(roleClaimDtos));
 
             return roleClaimDtos;
         }
 
-        public async Task<TRoleClaimsDto> GetRoleClaimAsync(string roleId, int claimId)
-        {
-            var roleExists = await _identityRepository.ExistsRoleAsync(roleId);
-            if (!roleExists) throw new UserFriendlyErrorPageException(string.Format(_identityServiceResources.RoleDoesNotExist().Description, roleId), _identityServiceResources.RoleDoesNotExist().Description);
+		public virtual async Task<TRoleClaimsDto> GetUserRoleClaimsAsync(string userId, string claimSearchText, int page = 1, int pageSize = 10)
+		{
+			var userExists = await IdentityRepository.ExistsUserAsync(userId);
+			if (!userExists) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.UserDoesNotExist().Description, userId), IdentityServiceResources.UserDoesNotExist().Description);
 
-            var identityRoleClaim = await _identityRepository.GetRoleClaimAsync(roleId, claimId);
-            if (identityRoleClaim == null) throw new UserFriendlyErrorPageException(string.Format(_identityServiceResources.RoleClaimDoesNotExist().Description, claimId), _identityServiceResources.RoleClaimDoesNotExist().Description);
-            var roleClaimsDto = _mapper.Map<TRoleClaimsDto>(identityRoleClaim);
+			var identityRoleClaims = await IdentityRepository.GetUserRoleClaimsAsync(userId, claimSearchText, page, pageSize);
+			var roleClaimDtos = Mapper.Map<TRoleClaimsDto>(identityRoleClaims);
+
+			return roleClaimDtos;
+		}
+
+		public virtual async Task<TRoleClaimsDto> GetRoleClaimAsync(string roleId, int claimId)
+        {
+            var roleExists = await IdentityRepository.ExistsRoleAsync(roleId);
+            if (!roleExists) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.RoleDoesNotExist().Description, roleId), IdentityServiceResources.RoleDoesNotExist().Description);
+
+            var identityRoleClaim = await IdentityRepository.GetRoleClaimAsync(roleId, claimId);
+            if (identityRoleClaim == null) throw new UserFriendlyErrorPageException(string.Format(IdentityServiceResources.RoleClaimDoesNotExist().Description, claimId), IdentityServiceResources.RoleClaimDoesNotExist().Description);
+            var roleClaimsDto = Mapper.Map<TRoleClaimsDto>(identityRoleClaim);
             var roleDto = await GetRoleAsync(roleId);
             roleClaimsDto.RoleName = roleDto.Name;
+
+            await AuditEventLogger.LogEventAsync(new RoleClaimRequestedEvent<TRoleClaimsDto>(roleClaimsDto));
 
             return roleClaimsDto;
         }
 
-        public async Task<int> DeleteRoleClaimsAsync(TRoleClaimsDto role)
+        public virtual async Task<int> DeleteRoleClaimsAsync(TRoleClaimsDto role)
         {
-            return await _identityRepository.DeleteRoleClaimsAsync(role.RoleId.ToString(), role.ClaimId);
+            var deleted = await IdentityRepository.DeleteRoleClaimsAsync(role.RoleId.ToString(), role.ClaimId);
+
+            await AuditEventLogger.LogEventAsync(new RoleClaimsDeletedEvent<TRoleClaimsDto>(role));
+
+            return deleted;
         }
 
-        public async Task<IdentityResult> DeleteRoleAsync(TRoleDto role)
+        public virtual async Task<IdentityResult> DeleteRoleAsync(TRoleDto role)
         {
-            var userIdentityRole = _mapper.Map<TRole>(role);
-            var identityResult = await _identityRepository.DeleteRoleAsync(userIdentityRole);
+            var userIdentityRole = Mapper.Map<TRole>(role);
+            var identityResult = await IdentityRepository.DeleteRoleAsync(userIdentityRole);
 
-            return HandleIdentityError(identityResult, _identityServiceResources.RoleDeleteFailed().Description, _identityServiceResources.IdentityErrorKey().Description, role);
+            await AuditEventLogger.LogEventAsync(new RoleDeletedEvent<TRoleDto>(role));
+
+            return HandleIdentityError(identityResult, IdentityServiceResources.RoleDeleteFailed().Description, IdentityServiceResources.IdentityErrorKey().Description, role);
         }
     }
 }

@@ -4,24 +4,28 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
-using Skoruba.IdentityServer4.Admin.EntityFramework.Identity.Entities.Identity;
+using Skoruba.IdentityServer4.STS.Identity.Helpers;
+using Skoruba.IdentityServer4.STS.Identity.Helpers.Localization;
 using Skoruba.IdentityServer4.STS.Identity.ViewModels.Manage;
 
 namespace Skoruba.IdentityServer4.STS.Identity.Controllers
-{
-    public class ManageController : Controller
+{    
+    [Authorize]
+    public class ManageController<TUser, TKey> : Controller
+        where TUser : IdentityUser<TKey>, new()
+        where TKey : IEquatable<TKey>
     {
-        private readonly UserManager<UserIdentity> _userManager;
-        private readonly SignInManager<UserIdentity> _signInManager;
+        private readonly UserManager<TUser> _userManager;
+        private readonly SignInManager<TUser> _signInManager;
         private readonly IEmailSender _emailSender;
-        private readonly ILogger<ManageController> _logger;
-        private readonly IStringLocalizer<ManageController> _localizer;
+        private readonly ILogger<ManageController<TUser, TKey>> _logger;
+        private readonly IGenericControllerLocalizer<ManageController<TUser, TKey>> _localizer;
         private readonly UrlEncoder _urlEncoder;
 
         private const string RecoveryCodesKey = nameof(RecoveryCodesKey);
@@ -30,7 +34,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
         [TempData]
         public string StatusMessage { get; set; }
 
-        public ManageController(UserManager<UserIdentity> userManager, SignInManager<UserIdentity> signInManager, IEmailSender emailSender, ILogger<ManageController> logger, IStringLocalizer<ManageController> localizer, UrlEncoder urlEncoder)
+        public ManageController(UserManager<TUser> userManager, SignInManager<TUser> signInManager, IEmailSender emailSender, ILogger<ManageController<TUser, TKey>> logger, IGenericControllerLocalizer<ManageController<TUser, TKey>> localizer, UrlEncoder urlEncoder)
         {
             _userManager = userManager;
             _signInManager = signInManager;
@@ -50,18 +54,11 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
                 return NotFound(_localizer["UserNotFound", _userManager.GetUserId(User)]);
             }
 
-            var model = new IndexViewModel
-            {
-                Username = user.UserName,
-                Email = user.Email,
-                PhoneNumber = user.PhoneNumber,
-                IsEmailConfirmed = user.EmailConfirmed,
-                StatusMessage = StatusMessage
-            };
+            var model = await BuildManageIndexViewModelAsync(user);
 
             return View(model);
         }
-
+        
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Index(IndexViewModel model)
@@ -96,12 +93,14 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
                     throw new ApplicationException(_localizer["ErrorSettingPhone", user.Id]);
                 }
             }
+            
+            await UpdateUserClaimsAsync(model, user);
 
             StatusMessage = _localizer["ProfileUpdated"];
 
             return RedirectToAction(nameof(Index));
         }
-
+        
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> SendVerificationEmail(IndexViewModel model)
@@ -120,7 +119,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
             var code = await _userManager.GenerateEmailConfirmationTokenAsync(user);
             var callbackUrl = Url.Action("ConfirmEmail", "Account", new { userId = user.Id, code }, HttpContext.Request.Scheme);
 
-            await _emailSender.SendEmailAsync(model.Email, "Confirm your email", $"Please confirm your account by <a href='{HtmlEncoder.Default.Encode(callbackUrl)}'>clicking here</a>.");
+            await _emailSender.SendEmailAsync(model.Email, _localizer["ConfirmEmailTitle"], _localizer["ConfirmEmailBody", HtmlEncoder.Default.Encode(callbackUrl)]);
 
             StatusMessage = _localizer["VerificationSent"];
 
@@ -248,7 +247,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
 
             _logger.LogInformation(_localizer["AskForPersonalDataLog"], _userManager.GetUserId(User));
 
-            var personalDataProps = typeof(UserIdentity).GetProperties().Where(prop => Attribute.IsDefined(prop, typeof(PersonalDataAttribute)));
+            var personalDataProps = typeof(TUser).GetProperties().Where(prop => Attribute.IsDefined(prop, typeof(PersonalDataAttribute)));
             var personalData = personalDataProps.ToDictionary(p => p.Name, p => p.GetValue(user)?.ToString() ?? "null");
 
             Response.Headers.Add("Content-Disposition", "attachment; filename=PersonalData.json");
@@ -561,7 +560,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
                 await LoadSharedKeyAndQrCodeUriAsync(user, model);
                 return View(model);
             }
-            
+
             var verificationCode = model.Code.Replace(" ", string.Empty).Replace("-", string.Empty);
 
             var is2faTokenValid = await _userManager.VerifyTwoFactorTokenAsync(
@@ -578,7 +577,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
             var userId = await _userManager.GetUserIdAsync(user);
 
             _logger.LogInformation(_localizer["SuccessUserEnabled2FA"], userId);
-            
+
             StatusMessage = _localizer["AuthenticatorVerified"];
 
             if (await _userManager.CountRecoveryCodesAsync(user) == 0)
@@ -609,7 +608,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
             return View(nameof(GenerateRecoveryCodes));
         }
 
-        private async Task LoadSharedKeyAndQrCodeUriAsync(UserIdentity user, EnableAuthenticatorViewModel model)
+        private async Task LoadSharedKeyAndQrCodeUriAsync(TUser user, EnableAuthenticatorViewModel model)
         {
             var unformattedKey = await _userManager.GetAuthenticatorKeyAsync(user);
             if (string.IsNullOrEmpty(unformattedKey))
@@ -620,6 +619,59 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
 
             model.SharedKey = FormatKey(unformattedKey);
             model.AuthenticatorUri = GenerateQrCodeUri(user.Email, unformattedKey);
+        }
+
+        private async Task<IndexViewModel> BuildManageIndexViewModelAsync(TUser user)
+        {
+            var claims = await _userManager.GetClaimsAsync(user);
+            var profile = OpenIdClaimHelpers.ExtractProfileInfo(claims);
+
+            var model = new IndexViewModel
+            {
+                Username = user.UserName,
+                Email = user.Email,
+                PhoneNumber = user.PhoneNumber,
+                IsEmailConfirmed = user.EmailConfirmed,
+                StatusMessage = StatusMessage,
+                Name = profile.FullName,
+                Website = profile.Website,
+                Profile = profile.Profile,
+                Country = profile.Country,
+                Region = profile.Region,
+                PostalCode = profile.PostalCode,
+                Locality = profile.Locality,
+                StreetAddress = profile.StreetAddress
+            };
+            return model;
+        }
+
+        private async Task UpdateUserClaimsAsync(IndexViewModel model, TUser user)
+        {
+            var claims = await _userManager.GetClaimsAsync(user);
+            var oldProfile = OpenIdClaimHelpers.ExtractProfileInfo(claims);
+            var newProfile = new OpenIdProfile
+            {
+                Website = model.Website,
+                StreetAddress = model.StreetAddress,
+                Locality = model.Locality,
+                PostalCode = model.PostalCode,
+                Region = model.Region,
+                Country = model.Country,
+                FullName = model.Name,
+                Profile = model.Profile
+            };
+
+            var claimsToRemove = OpenIdClaimHelpers.ExtractClaimsToRemove(oldProfile, newProfile);
+            var claimsToAdd = OpenIdClaimHelpers.ExtractClaimsToAdd(oldProfile, newProfile);
+            var claimsToReplace = OpenIdClaimHelpers.ExtractClaimsToReplace(claims, newProfile);
+
+            await _userManager.RemoveClaimsAsync(user, claimsToRemove);
+            await _userManager.AddClaimsAsync(user, claimsToAdd);
+
+            foreach (var pair in claimsToReplace)
+            {
+                await _userManager.ReplaceClaimAsync(user, pair.Item1, pair.Item2);
+            }
         }
 
         private string FormatKey(string unformattedKey)

@@ -7,15 +7,17 @@ using IdentityServer4.EntityFramework.Options;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Moq;
+using Skoruba.AuditLogging.Services;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Dtos.Identity;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Mappers;
-using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Repositories;
-using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Repositories.Interfaces;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Resources;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Services;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Services.Interfaces;
-using Skoruba.IdentityServer4.Admin.EntityFramework.DbContexts;
-using Skoruba.IdentityServer4.Admin.EntityFramework.Identity.Entities.Identity;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Identity.Repositories;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Identity.Repositories.Interfaces;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Shared.DbContexts;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Shared.Entities.Identity;
 using Skoruba.IdentityServer4.Admin.UnitTests.Mocks;
 using Xunit;
 
@@ -27,7 +29,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
         {
             var databaseName = Guid.NewGuid().ToString();
 
-            _dbContextOptions = new DbContextOptionsBuilder<AdminDbContext>()
+            _dbContextOptions = new DbContextOptionsBuilder<AdminIdentityDbContext>()
                 .UseInMemoryDatabase(databaseName)
                 .Options;
 
@@ -35,39 +37,39 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
             _operationalStore = new OperationalStoreOptions();
         }
 
-        private readonly DbContextOptions<AdminDbContext> _dbContextOptions;
+        private readonly DbContextOptions<AdminIdentityDbContext> _dbContextOptions;
         private readonly ConfigurationStoreOptions _storeOptions;
         private readonly OperationalStoreOptions _operationalStore;
 
-        private IIdentityRepository<AdminDbContext, string, string, UserIdentity, UserIdentityRole, string,
+        private IIdentityRepository<string, string, UserIdentity, UserIdentityRole, string,
             UserIdentityUserClaim, UserIdentityUserRole, UserIdentityUserLogin, UserIdentityRoleClaim,
-            UserIdentityUserToken> GetIdentityRepository(AdminDbContext dbContext,
+            UserIdentityUserToken> GetIdentityRepository(AdminIdentityDbContext dbContext,
             UserManager<UserIdentity> userManager,
             RoleManager<UserIdentityRole> roleManager,
             IMapper mapper)
         {
-            return new IdentityRepository<AdminDbContext, string, string, UserIdentity, UserIdentityRole, string,
+            return new IdentityRepository<AdminIdentityDbContext, string, string, UserIdentity, UserIdentityRole, string,
                 UserIdentityUserClaim, UserIdentityUserRole, UserIdentityUserLogin, UserIdentityRoleClaim,
                 UserIdentityUserToken>(dbContext, userManager, roleManager, mapper);
         }
 
-        private IIdentityService<AdminDbContext, UserDto<string>, string, RoleDto<string>, string, string, string, UserIdentity,
+        private IIdentityService<UserDto<string>, string, RoleDto<string>, string, string, string, UserIdentity,
             UserIdentityRole, string,
             UserIdentityUserClaim, UserIdentityUserRole, UserIdentityUserLogin, UserIdentityRoleClaim,
             UserIdentityUserToken,
             UsersDto<UserDto<string>, string>, RolesDto<RoleDto<string>, string>, UserRolesDto<RoleDto<string>, string, string>,
             UserClaimsDto<string>, UserProviderDto<string>, UserProvidersDto<string>, UserChangePasswordDto<string>,
-            RoleClaimsDto<string>> GetIdentityService(IIdentityRepository<AdminDbContext, string, string, UserIdentity, UserIdentityRole, string, UserIdentityUserClaim, UserIdentityUserRole, UserIdentityUserLogin, UserIdentityRoleClaim, UserIdentityUserToken> identityRepository,
+            RoleClaimsDto<string>> GetIdentityService(IIdentityRepository<string, string, UserIdentity, UserIdentityRole, string, UserIdentityUserClaim, UserIdentityUserRole, UserIdentityUserLogin, UserIdentityRoleClaim, UserIdentityUserToken> identityRepository,
             IIdentityServiceResources identityServiceResources,
-            IMapper mapper)
+            IMapper mapper, IAuditEventLogger auditEventLogger)
         {
-            return new IdentityService<AdminDbContext, UserDto<string>, string, RoleDto<string>, string, string, string, UserIdentity,
+            return new IdentityService<UserDto<string>, string, RoleDto<string>, string, string, string, UserIdentity,
                 UserIdentityRole, string,
                 UserIdentityUserClaim, UserIdentityUserRole, UserIdentityUserLogin, UserIdentityRoleClaim,
                 UserIdentityUserToken,
                 UsersDto<UserDto<string>, string>, RolesDto<RoleDto<string>, string>, UserRolesDto<RoleDto<string>, string, string>,
                 UserClaimsDto<string>, UserProviderDto<string>, UserProvidersDto<string>, UserChangePasswordDto<string>,
-                RoleClaimsDto<string>>(identityRepository, identityServiceResources, mapper);
+                RoleClaimsDto<string>>(identityRepository, identityServiceResources, mapper, auditEventLogger);
         }
 
         private IMapper GetMapper()
@@ -77,37 +79,55 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
                         UserIdentityUserToken,
                         UsersDto<UserDto<string>, string>, RolesDto<RoleDto<string>, string>, UserRolesDto<RoleDto<string>, string, string>,
                         UserClaimsDto<string>, UserProviderDto<string>, UserProvidersDto<string>,
-                        RoleClaimsDto<string>>
+                        RoleClaimsDto<string>, UserClaimDto<string>, RoleClaimDto<string>>
                 >())
                 .CreateMapper();
         }
 
-        private UserManager<UserIdentity> GetTestUserManager(AdminDbContext context)
+        private UserManager<UserIdentity> GetTestUserManager(AdminIdentityDbContext context)
         {
-            var testUserManager = IdentityMock.TestUserManager(new UserStore<UserIdentity, UserIdentityRole, AdminDbContext, string, UserIdentityUserClaim, UserIdentityUserRole, UserIdentityUserLogin, UserIdentityUserToken, UserIdentityRoleClaim>(context, new IdentityErrorDescriber()));
+            var testUserManager = IdentityMock.TestUserManager(new UserStore<UserIdentity, UserIdentityRole, AdminIdentityDbContext, string, UserIdentityUserClaim, UserIdentityUserRole, UserIdentityUserLogin, UserIdentityUserToken, UserIdentityRoleClaim>(context, new IdentityErrorDescriber()));
 
             return testUserManager;
         }
 
-        private RoleManager<UserIdentityRole> GetTestRoleManager(AdminDbContext context)
+        private RoleManager<UserIdentityRole> GetTestRoleManager(AdminIdentityDbContext context)
         {
-            var testRoleManager = IdentityMock.TestRoleManager(new RoleStore<UserIdentityRole, AdminDbContext, string, UserIdentityUserRole, UserIdentityRoleClaim>(context, new IdentityErrorDescriber()));
+            var testRoleManager = IdentityMock.TestRoleManager(new RoleStore<UserIdentityRole, AdminIdentityDbContext, string, UserIdentityUserRole, UserIdentityRoleClaim>(context, new IdentityErrorDescriber()));
 
             return testRoleManager;
+        }
+
+        private IIdentityService<UserDto<string>, string, RoleDto<string>, string, string, string, UserIdentity,
+            UserIdentityRole, string,
+            UserIdentityUserClaim, UserIdentityUserRole, UserIdentityUserLogin, UserIdentityRoleClaim,
+            UserIdentityUserToken,
+            UsersDto<UserDto<string>, string>, RolesDto<RoleDto<string>, string>,
+            UserRolesDto<RoleDto<string>, string, string>,
+            UserClaimsDto<string>, UserProviderDto<string>, UserProvidersDto<string>, UserChangePasswordDto<string>,
+            RoleClaimsDto<string>> GetIdentityService(AdminIdentityDbContext context)
+        {
+            var testUserManager = GetTestUserManager(context);
+            var testRoleManager = GetTestRoleManager(context);
+            var mapper = GetMapper();
+
+            var identityRepository = GetIdentityRepository(context, testUserManager, testRoleManager, mapper);
+            var localizerIdentityResource = new IdentityServiceResources();
+
+            var auditLoggerMock = new Mock<IAuditEventLogger>();
+            var auditLogger = auditLoggerMock.Object;
+
+            var identityService = GetIdentityService(identityRepository, localizerIdentityResource, mapper, auditLogger);
+
+            return identityService;
         }
 
         [Fact]
         public async Task AddUserAsync()
         {
-            using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+            using (var context = new AdminIdentityDbContext(_dbContextOptions))
             {
-                var testUserManager = GetTestUserManager(context);
-                var testRoleManager = GetTestRoleManager(context);
-                var mapper = GetMapper();
-
-                var identityRepository = GetIdentityRepository(context, testUserManager, testRoleManager, mapper);
-                var localizerIdentityResource = new IdentityServiceResources();
-                var identityService = GetIdentityService(identityRepository, localizerIdentityResource, mapper);
+                var identityService = GetIdentityService(context);
 
                 //Generate random new user
                 var userDto = IdentityDtoMock<string>.GenerateRandomUser();
@@ -128,16 +148,9 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
         [Fact]
         public async Task DeleteUserProviderAsync()
         {
-            using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+            using (var context = new AdminIdentityDbContext(_dbContextOptions))
             {
-                var testUserManager = GetTestUserManager(context);
-                var testRoleManager = GetTestRoleManager(context);
-
-                var mapper = GetMapper();
-
-                var identityRepository = GetIdentityRepository(context, testUserManager, testRoleManager, mapper);
-                var localizerIdentityResource = new IdentityServiceResources();
-                var identityService = GetIdentityService(identityRepository, localizerIdentityResource, mapper);
+                var identityService = GetIdentityService(context);
 
                 //Generate random new user
                 var userDto = IdentityDtoMock<string>.GenerateRandomUser();
@@ -178,16 +191,9 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
         [Fact]
         public async Task AddUserRoleAsync()
         {
-            using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+            using (var context = new AdminIdentityDbContext(_dbContextOptions))
             {
-                var testUserManager = GetTestUserManager(context);
-                var testRoleManager = GetTestRoleManager(context);
-
-                var mapper = GetMapper();
-
-                var identityRepository = GetIdentityRepository(context, testUserManager, testRoleManager, mapper);
-                var localizerIdentityResource = new IdentityServiceResources();
-                var identityService = GetIdentityService(identityRepository, localizerIdentityResource, mapper);
+                var identityService = GetIdentityService(context);
 
                 //Generate random new user
                 var userDto = IdentityDtoMock<string>.GenerateRandomUser();
@@ -231,16 +237,9 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
         [Fact]
         public async Task DeleteUserRoleAsync()
         {
-            using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+            using (var context = new AdminIdentityDbContext(_dbContextOptions))
             {
-                var testUserManager = GetTestUserManager(context);
-                var testRoleManager = GetTestRoleManager(context);
-
-                var mapper = GetMapper();
-
-                var identityRepository = GetIdentityRepository(context, testUserManager, testRoleManager, mapper);
-                var localizerIdentityResource = new IdentityServiceResources();
-                var identityService = GetIdentityService(identityRepository, localizerIdentityResource, mapper);
+                var identityService = GetIdentityService(context);
 
                 //Generate random new user
                 var userDto = IdentityDtoMock<string>.GenerateRandomUser();
@@ -289,16 +288,9 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
         [Fact]
         public async Task AddUserClaimAsync()
         {
-            using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+            using (var context = new AdminIdentityDbContext(_dbContextOptions))
             {
-                var testUserManager = GetTestUserManager(context);
-                var testRoleManager = GetTestRoleManager(context);
-
-                var mapper = GetMapper();
-
-                var identityRepository = GetIdentityRepository(context, testUserManager, testRoleManager, mapper);
-                var localizerIdentityResource = new IdentityServiceResources();
-                var identityService = GetIdentityService(identityRepository, localizerIdentityResource, mapper);
+                var identityService = GetIdentityService(context);
 
                 //Generate random new user
                 var userDto = IdentityDtoMock<string>.GenerateRandomUser();
@@ -333,16 +325,9 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
         [Fact]
         public async Task DeleteUserClaimAsync()
         {
-            using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+            using (var context = new AdminIdentityDbContext(_dbContextOptions))
             {
-                var testUserManager = GetTestUserManager(context);
-                var testRoleManager = GetTestRoleManager(context);
-
-                var mapper = GetMapper();
-
-                var identityRepository = GetIdentityRepository(context, testUserManager, testRoleManager, mapper);
-                var localizerIdentityResource = new IdentityServiceResources();
-                var identityService = GetIdentityService(identityRepository, localizerIdentityResource, mapper);
+                var identityService = GetIdentityService(context);
 
                 //Generate random new user
                 var userDto = IdentityDtoMock<string>.GenerateRandomUser();
@@ -383,16 +368,9 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
         [Fact]
         public async Task UpdateUserAsync()
         {
-            using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+            using (var context = new AdminIdentityDbContext(_dbContextOptions))
             {
-                var testUserManager = GetTestUserManager(context);
-                var testRoleManager = GetTestRoleManager(context);
-
-                var mapper = GetMapper();
-
-                var identityRepository = GetIdentityRepository(context, testUserManager, testRoleManager, mapper);
-                var localizerIdentityResource = new IdentityServiceResources();
-                var identityService = GetIdentityService(identityRepository, localizerIdentityResource, mapper);
+                var identityService = GetIdentityService(context);
 
                 //Generate random new user
                 var userDto = IdentityDtoMock<string>.GenerateRandomUser();
@@ -427,16 +405,9 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
         [Fact]
         public async Task DeleteUserAsync()
         {
-            using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+            using (var context = new AdminIdentityDbContext(_dbContextOptions))
             {
-                var testUserManager = GetTestUserManager(context);
-                var testRoleManager = GetTestRoleManager(context);
-
-                var mapper = GetMapper();
-
-                var identityRepository = GetIdentityRepository(context, testUserManager, testRoleManager, mapper);
-                var localizerIdentityResource = new IdentityServiceResources();
-                var identityService = GetIdentityService(identityRepository, localizerIdentityResource, mapper);
+                var identityService = GetIdentityService(context);
 
                 //Generate random new user
                 var userDto = IdentityDtoMock<string>.GenerateRandomUser();
@@ -467,16 +438,9 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
         [Fact]
         public async Task AddRoleAsync()
         {
-            using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+            using (var context = new AdminIdentityDbContext(_dbContextOptions))
             {
-                var testUserManager = GetTestUserManager(context);
-                var testRoleManager = GetTestRoleManager(context);
-
-                var mapper = GetMapper();
-
-                var identityRepository = GetIdentityRepository(context, testUserManager, testRoleManager, mapper);
-                var localizerIdentityResource = new IdentityServiceResources();
-                var identityService = GetIdentityService(identityRepository, localizerIdentityResource, mapper);
+                var identityService = GetIdentityService(context);
 
                 //Generate random new role
                 var roleDto = IdentityDtoMock<string>.GenerateRandomRole();
@@ -497,16 +461,9 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
         [Fact]
         public async Task UpdateRoleAsync()
         {
-            using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+            using (var context = new AdminIdentityDbContext(_dbContextOptions))
             {
-                var testUserManager = GetTestUserManager(context);
-                var testRoleManager = GetTestRoleManager(context);
-
-                var mapper = GetMapper();
-
-                var identityRepository = GetIdentityRepository(context, testUserManager, testRoleManager, mapper);
-                var localizerIdentityResource = new IdentityServiceResources();
-                var identityService = GetIdentityService(identityRepository, localizerIdentityResource, mapper);
+                var identityService = GetIdentityService(context);
 
                 //Generate random new role
                 var roleDto = IdentityDtoMock<string>.GenerateRandomRole();
@@ -541,16 +498,9 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
         [Fact]
         public async Task DeleteRoleAsync()
         {
-            using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+            using (var context = new AdminIdentityDbContext(_dbContextOptions))
             {
-                var testUserManager = GetTestUserManager(context);
-                var testRoleManager = GetTestRoleManager(context);
-
-                var mapper = GetMapper();
-
-                var identityRepository = GetIdentityRepository(context, testUserManager, testRoleManager, mapper);
-                var localizerIdentityResource = new IdentityServiceResources();
-                var identityService = GetIdentityService(identityRepository, localizerIdentityResource, mapper);
+                var identityService = GetIdentityService(context);
 
                 //Generate random new role
                 var roleDto = IdentityDtoMock<string>.GenerateRandomRole();
@@ -581,16 +531,9 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
         [Fact]
         public async Task AddRoleClaimAsync()
         {
-            using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+            using (var context = new AdminIdentityDbContext(_dbContextOptions))
             {
-                var testUserManager = GetTestUserManager(context);
-                var testRoleManager = GetTestRoleManager(context);
-
-                var mapper = GetMapper();
-
-                var identityRepository = GetIdentityRepository(context, testUserManager, testRoleManager, mapper);
-                var localizerIdentityResource = new IdentityServiceResources();
-                var identityService = GetIdentityService(identityRepository, localizerIdentityResource, mapper);
+                var identityService = GetIdentityService(context);
 
                 //Generate random new role
                 var roleDto = IdentityDtoMock<string>.GenerateRandomRole();
@@ -625,16 +568,9 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
         [Fact]
         public async Task RemoveRoleClaimAsync()
         {
-            using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+            using (var context = new AdminIdentityDbContext(_dbContextOptions))
             {
-                var testUserManager = GetTestUserManager(context);
-                var testRoleManager = GetTestRoleManager(context);
-
-                var mapper = GetMapper();
-
-                var identityRepository = GetIdentityRepository(context, testUserManager, testRoleManager, mapper);
-                var localizerIdentityResource = new IdentityServiceResources();
-                var identityService = GetIdentityService(identityRepository, localizerIdentityResource, mapper);
+                var identityService = GetIdentityService(context);
 
                 //Generate random new role
                 var roleDto = IdentityDtoMock<string>.GenerateRandomRole();

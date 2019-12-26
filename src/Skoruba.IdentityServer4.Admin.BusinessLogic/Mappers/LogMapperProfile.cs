@@ -1,7 +1,8 @@
 ﻿using AutoMapper;
+using Skoruba.AuditLogging.EntityFramework.Entities;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Dtos.Log;
-using Skoruba.IdentityServer4.Admin.BusinessLogic.Shared.Dtos.Common;
 using Skoruba.IdentityServer4.Admin.EntityFramework.Entities;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Extensions.Common;
 
 namespace Skoruba.IdentityServer4.Admin.BusinessLogic.Mappers
 {
@@ -13,6 +14,12 @@ namespace Skoruba.IdentityServer4.Admin.BusinessLogic.Mappers
                 .ReverseMap();
             
             CreateMap<PagedList<Log>, LogsDto>(MemberList.Destination)
+                .ForMember(x => x.Logs, opt => opt.MapFrom(src => src.Data));
+
+            CreateMap<AuditLog, AuditLogDto>(MemberList.Destination)
+                .ReverseMap();
+
+            CreateMap<PagedList<AuditLog>, AuditLogsDto>(MemberList.Destination)
                 .ForMember(x => x.Logs, opt => opt.MapFrom(src => src.Data));
         }
     }

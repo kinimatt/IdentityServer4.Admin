@@ -13,12 +13,9 @@ If you don't have publicly accessible database you will need to create one. Foll
 
 Replace connection strings in `appSettings.json` with connection string to generated database.
 
-Then you can generate migrations and update the database. In `src/Skoruba.IdentityServer4.Admin` issue:
+Then you can generate migrations:
 
-```
-dotnet ef migrations add DbInit -c AdminDbContext -o Data/Migrations
-dotnet ef database update -c AdminDbContext
-```
+[Follow these steps for generating of DB migrations](/README.md#ef-core--data-access)
 
 ## Deploying webbaps to Azure App Service
 
@@ -72,11 +69,20 @@ While we're at it we can allow only https traffic to our STS and admin:
 
 ![Always https](Images/https_always.PNG)
 
+Then head to "Application Settings" section within your Azure App Service and create a new Application setting with the following parameters:
+
+```
+Name: WEBSITE_LOAD_CERTIFICATES
+Value: *
+```
+
 Last step before deploy - we need to update `src/Skoruba.IdentityServer4.STS.Identity/appsettings.json` and modify following lines:
 
 ```json
 "CertificateConfiguration": {
     "UseTemporarySigningKeyForDevelopment": false,
+    "CertificateStoreLocation": "CurrentUser",
+    "CertificateValidOnly": false,
     "UseSigningCertificateThumbprint": true,
     "SigningCertificateThumbprint": "<enter here thumbprint from Azure>"
 }

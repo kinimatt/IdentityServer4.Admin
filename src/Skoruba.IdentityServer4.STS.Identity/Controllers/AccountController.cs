@@ -10,6 +10,7 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Threading.Tasks;
 using IdentityModel;
+using IdentityServer4;
 using IdentityServer4.Events;
 using IdentityServer4.Extensions;
 using IdentityServer4.Models;
@@ -20,37 +21,45 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Localization;
-using Skoruba.IdentityServer4.Admin.EntityFramework.Identity.Entities.Identity;
 using Skoruba.IdentityServer4.STS.Identity.Configuration;
 using Skoruba.IdentityServer4.STS.Identity.Helpers;
+using Skoruba.IdentityServer4.STS.Identity.Helpers.Localization;
 using Skoruba.IdentityServer4.STS.Identity.ViewModels.Account;
 
 namespace Skoruba.IdentityServer4.STS.Identity.Controllers
 {
     [SecurityHeaders]
-    [AllowAnonymous]
-    public class AccountController : Controller
+    [Authorize]
+    public class AccountController<TUser, TKey> : Controller
+        where TUser : IdentityUser<TKey>, new()
+        where TKey : IEquatable<TKey>
     {
-        private readonly UserManager<UserIdentity> _userManager;
-        private readonly SignInManager<UserIdentity> _signInManager;
+        private readonly UserResolver<TUser> _userResolver;
+        private readonly UserManager<TUser> _userManager;
+        private readonly SignInManager<TUser> _signInManager;
         private readonly IIdentityServerInteractionService _interaction;
         private readonly IClientStore _clientStore;
         private readonly IAuthenticationSchemeProvider _schemeProvider;
         private readonly IEventService _events;
         private readonly IEmailSender _emailSender;
-        private readonly IStringLocalizer<AccountController> _localizer;
+        private readonly IGenericControllerLocalizer<AccountController<TUser, TKey>> _localizer;
+        private readonly LoginConfiguration _loginConfiguration;
+        private readonly RegisterConfiguration _registerConfiguration;
 
         public AccountController(
-            UserManager<UserIdentity> userManager,
-            SignInManager<UserIdentity> signInManager,
+            UserResolver<TUser> userResolver,
+            UserManager<TUser> userManager,
+            SignInManager<TUser> signInManager,
             IIdentityServerInteractionService interaction,
             IClientStore clientStore,
             IAuthenticationSchemeProvider schemeProvider,
             IEventService events,
             IEmailSender emailSender,
-            IStringLocalizer<AccountController> localizer)
+            IGenericControllerLocalizer<AccountController<TUser, TKey>> localizer,
+            LoginConfiguration loginConfiguration,
+            RegisterConfiguration registerConfiguration)
         {
+            _userResolver = userResolver;
             _userManager = userManager;
             _signInManager = signInManager;
             _interaction = interaction;
@@ -59,17 +68,20 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
             _events = events;
             _emailSender = emailSender;
             _localizer = localizer;
+            _loginConfiguration = loginConfiguration;
+            _registerConfiguration = registerConfiguration;
         }
 
         /// <summary>
         /// Entry point into the login workflow
         /// </summary>
         [HttpGet]
+        [AllowAnonymous]
         public async Task<IActionResult> Login(string returnUrl)
         {
             // build a model so we know what to show on the login page
             var vm = await BuildLoginViewModelAsync(returnUrl);
-            
+
             if (vm.EnableLocalLogin == false && vm.ExternalProviders.Count() == 1)
             {
                 // only one option for logging in
@@ -83,6 +95,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
         /// Handle postback from username/password login
         /// </summary>
         [HttpPost]
+        [AllowAnonymous]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Login(LoginInputModel model, string button)
         {
@@ -116,50 +129,52 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
 
             if (ModelState.IsValid)
             {
-                var result = await _signInManager.PasswordSignInAsync(model.Username, model.Password, model.RememberLogin, lockoutOnFailure: true);
-                if (result.Succeeded)
+                var user = await _userResolver.GetUserAsync(model.Username);
+                if (user != default(TUser))
                 {
-                    var user = await _userManager.FindByNameAsync(model.Username);
-                    await _events.RaiseAsync(new UserLoginSuccessEvent(user.UserName, user.Id.ToString(), user.UserName));
-
-                    if (context != null)
+                    var result = await _signInManager.PasswordSignInAsync(user.UserName, model.Password, model.RememberLogin, lockoutOnFailure: true);
+                    if (result.Succeeded)
                     {
-                        if (await _clientStore.IsPkceClientAsync(context.ClientId))
+                        await _events.RaiseAsync(new UserLoginSuccessEvent(user.UserName, user.Id.ToString(), user.UserName));
+
+                        if (context != null)
                         {
-                            // if the client is PKCE then we assume it's native, so this change in how to
-                            // return the response is for better UX for the end user.
-                            return View("Redirect", new RedirectViewModel { RedirectUrl = model.ReturnUrl });
+                            if (await _clientStore.IsPkceClientAsync(context.ClientId))
+                            {
+                                // if the client is PKCE then we assume it's native, so this change in how to
+                                // return the response is for better UX for the end user.
+                                return View("Redirect", new RedirectViewModel { RedirectUrl = model.ReturnUrl });
+                            }
+
+                            // we can trust model.ReturnUrl since GetAuthorizationContextAsync returned non-null
+                            return Redirect(model.ReturnUrl);
                         }
 
-                        // we can trust model.ReturnUrl since GetAuthorizationContextAsync returned non-null
-                        return Redirect(model.ReturnUrl);
+                        // request for a local page
+                        if (Url.IsLocalUrl(model.ReturnUrl))
+                        {
+                            return Redirect(model.ReturnUrl);
+                        }
+
+                        if (string.IsNullOrEmpty(model.ReturnUrl))
+                        {
+                            return Redirect("~/");
+                        }
+
+                        // user might have clicked on a malicious link - should be logged
+                        throw new Exception("invalid return URL");
                     }
 
-                    // request for a local page
-                    if (Url.IsLocalUrl(model.ReturnUrl))
+                    if (result.RequiresTwoFactor)
                     {
-                        return Redirect(model.ReturnUrl);
+                        return RedirectToAction(nameof(LoginWith2fa), new { model.ReturnUrl, RememberMe = model.RememberLogin });
                     }
 
-                    if (string.IsNullOrEmpty(model.ReturnUrl))
+                    if (result.IsLockedOut)
                     {
-                        return Redirect("~/");
+                        return View("Lockout");
                     }
-
-                    // user might have clicked on a malicious link - should be logged
-                    throw new Exception("invalid return URL");
                 }
-
-                if (result.RequiresTwoFactor)
-                {
-                    return RedirectToAction(nameof(LoginWith2fa), new { ReturnUrl = model.ReturnUrl, RememberMe = model.RememberLogin });
-                }
-
-                if (result.IsLockedOut)
-                {
-                    return View("Lockout");
-                }
-
                 await _events.RaiseAsync(new UserLoginFailureEvent(model.Username, "invalid credentials"));
                 ModelState.AddModelError(string.Empty, AccountOptions.InvalidCredentialsErrorMessage);
             }
@@ -266,7 +281,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
                 var code = await _userManager.GeneratePasswordResetTokenAsync(user);
                 var callbackUrl = Url.Action("ResetPassword", "Account", new { userId = user.Id, code }, HttpContext.Request.Scheme);
 
-                await _emailSender.SendEmailAsync(model.Email, "Reset Password", $"Please reset your password by <a href='{HtmlEncoder.Default.Encode(callbackUrl)}'>clicking here</a>.");
+                await _emailSender.SendEmailAsync(model.Email, _localizer["ResetPasswordTitle"], _localizer["ResetPasswordBody", HtmlEncoder.Default.Encode(callbackUrl)]);
 
 
                 return View("ForgotPasswordConfirmation");
@@ -344,6 +359,14 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
             {
                 return RedirectToLocal(returnUrl);
             }
+            if (result.RequiresTwoFactor)
+            {
+                return RedirectToAction(nameof(LoginWith2fa), new { ReturnUrl = returnUrl });
+            }
+            if (result.IsLockedOut)
+            {
+                return View("Lockout");
+            }
 
             // If the user does not have an account, then ask the user to create an account.
             ViewData["ReturnUrl"] = returnUrl;
@@ -370,16 +393,18 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ExternalLoginConfirmation(ExternalLoginConfirmationViewModel model, string returnUrl = null)
         {
+            returnUrl = returnUrl ?? Url.Content("~/");
+
+            // Get the information about the user from the external login provider
+            var info = await _signInManager.GetExternalLoginInfoAsync();
+            if (info == null)
+            {
+                return View("ExternalLoginFailure");
+            }
+
             if (ModelState.IsValid)
             {
-                // Get the information about the user from the external login provider
-                var info = await _signInManager.GetExternalLoginInfoAsync();
-                if (info == null)
-                {
-                    return View("ExternalLoginFailure");
-                }
-
-                var user = new UserIdentity
+                var user = new TUser
                 {
                     UserName = model.UserName,
                     Email = model.Email
@@ -400,6 +425,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
                 AddErrors(result);
             }
 
+            ViewData["LoginProvider"] = info.LoginProvider;
             ViewData["ReturnUrl"] = returnUrl;
 
             return View(model);
@@ -445,7 +471,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
 
             if (result.Succeeded)
             {
-                return LocalRedirect(model.ReturnUrl);
+                return LocalRedirect(string.IsNullOrEmpty(model.ReturnUrl) ? "~/" : model.ReturnUrl);
             }
 
             if (result.IsLockedOut)
@@ -475,7 +501,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
                 ReturnUrl = returnUrl,
                 RememberMe = rememberMe
             };
-            
+
             return View(model);
         }
 
@@ -501,7 +527,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
 
             if (result.Succeeded)
             {
-                return LocalRedirect(model.ReturnUrl);
+                return LocalRedirect(string.IsNullOrEmpty(model.ReturnUrl) ? "~/" : model.ReturnUrl);
             }
 
             if (result.IsLockedOut)
@@ -513,6 +539,77 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
 
             return View(model);
         }
+
+        [HttpGet]
+        [AllowAnonymous]
+        public IActionResult Register(string returnUrl = null)
+        {
+            if (!_registerConfiguration.Enabled) return View("RegisterFailure");
+
+            ViewData["ReturnUrl"] = returnUrl;
+
+            switch (_loginConfiguration.ResolutionPolicy)
+            {
+                case LoginResolutionPolicy.Username:
+                    return View();
+                case LoginResolutionPolicy.Email:
+                    return View("RegisterWithoutUsername");
+                default:
+                    return View("RegisterFailure");
+            }
+        }
+
+        [HttpPost]
+        [AllowAnonymous]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Register(RegisterViewModel model, string returnUrl = null)
+        {
+            returnUrl = returnUrl ?? Url.Content("~/");
+
+            ViewData["ReturnUrl"] = returnUrl;
+
+            if (!ModelState.IsValid) return View(model);
+
+            var user = new TUser
+            {
+                UserName = model.UserName,
+                Email = model.Email
+            };
+
+            var result = await _userManager.CreateAsync(user, model.Password);
+            if (result.Succeeded)
+            {
+                var code = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+                var callbackUrl = Url.Action("ConfirmEmail", "Account", new { userId = user.Id, code }, HttpContext.Request.Scheme);
+
+                await _emailSender.SendEmailAsync(model.Email, _localizer["ConfirmEmailTitle"], _localizer["ConfirmEmailBody", HtmlEncoder.Default.Encode(callbackUrl)]);
+                await _signInManager.SignInAsync(user, isPersistent: false);
+
+                return RedirectToLocal(returnUrl);
+            }
+
+            AddErrors(result);
+
+            // If we got this far, something failed, redisplay form
+            return View(model);
+        }
+
+        [HttpPost]
+        [AllowAnonymous]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> RegisterWithoutUsername(RegisterWithoutUsernameViewModel model, string returnUrl = null)
+        {
+            var registerModel = new RegisterViewModel
+            {
+                UserName = model.Email,
+                Email = model.Email,
+                Password = model.Password,
+                ConfirmPassword = model.ConfirmPassword
+            };
+
+            return await Register(registerModel, returnUrl);
+        }
+        
 
         /*****************************************/
         /* helper APIs for the AccountController */
@@ -546,6 +643,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
                     EnableLocalLogin = false,
                     ReturnUrl = returnUrl,
                     Username = context?.LoginHint,
+                    LoginResolutionPolicy = _loginConfiguration.ResolutionPolicy,
                     ExternalProviders = new ExternalProvider[] { new ExternalProvider { AuthenticationScheme = context.IdP } }
                 };
             }
@@ -583,6 +681,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
                 EnableLocalLogin = allowLocal && AccountOptions.AllowLocalLogin,
                 ReturnUrl = returnUrl,
                 Username = context?.LoginHint,
+                LoginResolutionPolicy = _loginConfiguration.ResolutionPolicy,
                 ExternalProviders = providers.ToArray()
             };
         }
@@ -636,7 +735,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
             if (User?.Identity.IsAuthenticated == true)
             {
                 var idp = User.FindFirst(JwtClaimTypes.IdentityProvider)?.Value;
-                if (idp != null && idp != global::IdentityServer4.IdentityServerConstants.LocalIdentityProvider)
+                if (idp != null && idp != IdentityServerConstants.LocalIdentityProvider)
                 {
                     var providerSupportsSignout = await HttpContext.GetSchemeSupportsSignOutAsync(idp);
                     if (providerSupportsSignout)

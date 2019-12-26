@@ -1,86 +1,100 @@
 ﻿using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
+using Skoruba.AuditLogging.Services;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Dtos.Configuration;
+using Skoruba.IdentityServer4.Admin.BusinessLogic.Events.IdentityResource;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Helpers;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Mappers;
-using Skoruba.IdentityServer4.Admin.BusinessLogic.Repositories.Interfaces;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Resources;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Services.Interfaces;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Shared.ExceptionHandling;
-using Skoruba.IdentityServer4.Admin.EntityFramework.Interfaces;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Repositories.Interfaces;
 
 namespace Skoruba.IdentityServer4.Admin.BusinessLogic.Services
 {
-    public class IdentityResourceService<TDbContext> : IIdentityResourceService<TDbContext>
-        where TDbContext : DbContext, IAdminConfigurationDbContext
+    public class IdentityResourceService : IIdentityResourceService
     {
-        private readonly IIdentityResourceRepository<TDbContext> _identityResourceRepository;
-        private readonly IIdentityResourceServiceResources _identityResourceServiceResources;
+        protected readonly IIdentityResourceRepository IdentityResourceRepository;
+        protected readonly IIdentityResourceServiceResources IdentityResourceServiceResources;
+        protected readonly IAuditEventLogger AuditEventLogger;
 
-        public IdentityResourceService(IIdentityResourceRepository<TDbContext> identityResourceRepository,
-            IIdentityResourceServiceResources identityResourceServiceResources)
+        public IdentityResourceService(IIdentityResourceRepository identityResourceRepository,
+            IIdentityResourceServiceResources identityResourceServiceResources,
+            IAuditEventLogger auditEventLogger)
         {
-            _identityResourceRepository = identityResourceRepository;
-            _identityResourceServiceResources = identityResourceServiceResources;
+            IdentityResourceRepository = identityResourceRepository;
+            IdentityResourceServiceResources = identityResourceServiceResources;
+            AuditEventLogger = auditEventLogger;
         }
 
-        public async Task<IdentityResourcesDto> GetIdentityResourcesAsync(string search, int page = 1, int pageSize = 10)
+        public virtual async Task<IdentityResourcesDto> GetIdentityResourcesAsync(string search, int page = 1, int pageSize = 10)
         {
-            var pagedList = await _identityResourceRepository.GetIdentityResourcesAsync(search, page, pageSize);
+            var pagedList = await IdentityResourceRepository.GetIdentityResourcesAsync(search, page, pageSize);
             var identityResourcesDto = pagedList.ToModel();
+
+            await AuditEventLogger.LogEventAsync(new IdentityResourcesRequestedEvent(identityResourcesDto));
 
             return identityResourcesDto;
         }
 
-        public async Task<IdentityResourceDto> GetIdentityResourceAsync(int identityResourceId)
+        public virtual async Task<IdentityResourceDto> GetIdentityResourceAsync(int identityResourceId)
         {
-            var identityResource = await _identityResourceRepository.GetIdentityResourceAsync(identityResourceId);
-            if (identityResource == null) throw new UserFriendlyErrorPageException(string.Format(_identityResourceServiceResources.IdentityResourceDoesNotExist().Description, identityResourceId));
+            var identityResource = await IdentityResourceRepository.GetIdentityResourceAsync(identityResourceId);
+            if (identityResource == null) throw new UserFriendlyErrorPageException(string.Format(IdentityResourceServiceResources.IdentityResourceDoesNotExist().Description, identityResourceId));
 
             var identityResourceDto = identityResource.ToModel();
+
+            await AuditEventLogger.LogEventAsync(new IdentityResourceRequestedEvent(identityResourceDto));
 
             return identityResourceDto;
         }
 
-        public async Task<IdentityResourcePropertiesDto> GetIdentityResourcePropertiesAsync(int identityResourceId, int page = 1, int pageSize = 10)
+        public virtual async Task<IdentityResourcePropertiesDto> GetIdentityResourcePropertiesAsync(int identityResourceId, int page = 1, int pageSize = 10)
         {
-            var identityResource = await _identityResourceRepository.GetIdentityResourceAsync(identityResourceId);
-            if (identityResource == null) throw new UserFriendlyErrorPageException(string.Format(_identityResourceServiceResources.IdentityResourceDoesNotExist().Description, identityResourceId), _identityResourceServiceResources.IdentityResourceDoesNotExist().Description);
+            var identityResource = await IdentityResourceRepository.GetIdentityResourceAsync(identityResourceId);
+            if (identityResource == null) throw new UserFriendlyErrorPageException(string.Format(IdentityResourceServiceResources.IdentityResourceDoesNotExist().Description, identityResourceId), IdentityResourceServiceResources.IdentityResourceDoesNotExist().Description);
 
-            var pagedList = await _identityResourceRepository.GetIdentityResourcePropertiesAsync(identityResourceId, page, pageSize);
-            var apiResourcePropertiesDto = pagedList.ToModel();
-            apiResourcePropertiesDto.IdentityResourceId = identityResourceId;
-            apiResourcePropertiesDto.IdentityResourceName = identityResource.Name;
+            var pagedList = await IdentityResourceRepository.GetIdentityResourcePropertiesAsync(identityResourceId, page, pageSize);
+            var identityResourcePropertiesAsync = pagedList.ToModel();
+            identityResourcePropertiesAsync.IdentityResourceId = identityResourceId;
+            identityResourcePropertiesAsync.IdentityResourceName = identityResource.Name;
 
-            return apiResourcePropertiesDto;
+            await AuditEventLogger.LogEventAsync(new IdentityResourcePropertiesRequestedEvent(identityResourcePropertiesAsync));
+
+            return identityResourcePropertiesAsync;
         }
 
-        public async Task<IdentityResourcePropertiesDto> GetIdentityResourcePropertyAsync(int identityResourcePropertyId)
+        public virtual async Task<IdentityResourcePropertiesDto> GetIdentityResourcePropertyAsync(int identityResourcePropertyId)
         {
-            var identityResourceProperty = await _identityResourceRepository.GetIdentityResourcePropertyAsync(identityResourcePropertyId);
-            if (identityResourceProperty == null) throw new UserFriendlyErrorPageException(string.Format(_identityResourceServiceResources.IdentityResourcePropertyDoesNotExist().Description, identityResourcePropertyId));
+            var identityResourceProperty = await IdentityResourceRepository.GetIdentityResourcePropertyAsync(identityResourcePropertyId);
+            if (identityResourceProperty == null) throw new UserFriendlyErrorPageException(string.Format(IdentityResourceServiceResources.IdentityResourcePropertyDoesNotExist().Description, identityResourcePropertyId));
 
-            var identityResource = await _identityResourceRepository.GetIdentityResourceAsync(identityResourceProperty.IdentityResourceId);
+            var identityResource = await IdentityResourceRepository.GetIdentityResourceAsync(identityResourceProperty.IdentityResourceId);
 
             var identityResourcePropertiesDto = identityResourceProperty.ToModel();
             identityResourcePropertiesDto.IdentityResourceId = identityResourceProperty.IdentityResourceId;
             identityResourcePropertiesDto.IdentityResourceName = identityResource.Name;
 
+            await AuditEventLogger.LogEventAsync(new IdentityResourcePropertyRequestedEvent(identityResourcePropertiesDto));
+
             return identityResourcePropertiesDto;
         }
 
-        public async Task<int> AddIdentityResourcePropertyAsync(IdentityResourcePropertiesDto identityResourceProperties)
+        public virtual async Task<int> AddIdentityResourcePropertyAsync(IdentityResourcePropertiesDto identityResourceProperties)
         {
             var canInsert = await CanInsertIdentityResourcePropertyAsync(identityResourceProperties);
             if (!canInsert)
             {
                 await BuildIdentityResourcePropertiesViewModelAsync(identityResourceProperties);
-                throw new UserFriendlyViewException(string.Format(_identityResourceServiceResources.IdentityResourcePropertyExistsValue().Description, identityResourceProperties.Key), _identityResourceServiceResources.IdentityResourcePropertyExistsKey().Description, identityResourceProperties);
+                throw new UserFriendlyViewException(string.Format(IdentityResourceServiceResources.IdentityResourcePropertyExistsValue().Description, identityResourceProperties.Key), IdentityResourceServiceResources.IdentityResourcePropertyExistsKey().Description, identityResourceProperties);
             }
 
             var identityResourceProperty = identityResourceProperties.ToEntity();
 
-            return await _identityResourceRepository.AddIdentityResourcePropertyAsync(identityResourceProperties.IdentityResourceId, identityResourceProperty);
+            var added = await IdentityResourceRepository.AddIdentityResourcePropertyAsync(identityResourceProperties.IdentityResourceId, identityResourceProperty);
+
+            await AuditEventLogger.LogEventAsync(new IdentityResourcePropertyAddedEvent(identityResourceProperties));
+
+            return added;
         }
 
         private async Task BuildIdentityResourcePropertiesViewModelAsync(IdentityResourcePropertiesDto identityResourceProperties)
@@ -90,61 +104,79 @@ namespace Skoruba.IdentityServer4.Admin.BusinessLogic.Services
             identityResourceProperties.TotalCount = propertiesDto.TotalCount;
         }
 
-        public async Task<bool> CanInsertIdentityResourcePropertyAsync(IdentityResourcePropertiesDto identityResourcePropertiesDto)
+        public virtual async Task<bool> CanInsertIdentityResourcePropertyAsync(IdentityResourcePropertiesDto identityResourcePropertiesDto)
         {
             var resource = identityResourcePropertiesDto.ToEntity();
 
-            return await _identityResourceRepository.CanInsertIdentityResourcePropertyAsync(resource);
+            return await IdentityResourceRepository.CanInsertIdentityResourcePropertyAsync(resource);
         }
 
-        public async Task<int> DeleteIdentityResourcePropertyAsync(IdentityResourcePropertiesDto identityResourceProperty)
+        public virtual async Task<int> DeleteIdentityResourcePropertyAsync(IdentityResourcePropertiesDto identityResourceProperty)
         {
             var propertyEntity = identityResourceProperty.ToEntity();
 
-            return await _identityResourceRepository.DeleteIdentityResourcePropertyAsync(propertyEntity);
+            var deleted = await IdentityResourceRepository.DeleteIdentityResourcePropertyAsync(propertyEntity);
+
+            await AuditEventLogger.LogEventAsync(new IdentityResourcePropertyDeletedEvent(identityResourceProperty));
+
+            return deleted;
         }
 
-        public async Task<bool> CanInsertIdentityResourceAsync(IdentityResourceDto identityResource)
+        public virtual async Task<bool> CanInsertIdentityResourceAsync(IdentityResourceDto identityResource)
         {
             var resource = identityResource.ToEntity();
 
-            return await _identityResourceRepository.CanInsertIdentityResourceAsync(resource);
+            return await IdentityResourceRepository.CanInsertIdentityResourceAsync(resource);
         }
 
-        public async Task<int> AddIdentityResourceAsync(IdentityResourceDto identityResource)
-        {
-            var canInsert = await CanInsertIdentityResourceAsync(identityResource);
-            if (!canInsert)
-            {
-                throw new UserFriendlyViewException(string.Format(_identityResourceServiceResources.IdentityResourceExistsValue().Description, identityResource.Name), _identityResourceServiceResources.IdentityResourceExistsKey().Description, identityResource);
-            }
-
-            var resource = identityResource.ToEntity();
-
-            return await _identityResourceRepository.AddIdentityResourceAsync(resource);
-        }
-
-        public async Task<int> UpdateIdentityResourceAsync(IdentityResourceDto identityResource)
+        public virtual async Task<int> AddIdentityResourceAsync(IdentityResourceDto identityResource)
         {
             var canInsert = await CanInsertIdentityResourceAsync(identityResource);
             if (!canInsert)
             {
-                throw new UserFriendlyViewException(string.Format(_identityResourceServiceResources.IdentityResourceExistsValue().Description, identityResource.Name), _identityResourceServiceResources.IdentityResourceExistsKey().Description, identityResource);
+                throw new UserFriendlyViewException(string.Format(IdentityResourceServiceResources.IdentityResourceExistsValue().Description, identityResource.Name), IdentityResourceServiceResources.IdentityResourceExistsKey().Description, identityResource);
             }
 
             var resource = identityResource.ToEntity();
 
-            return await _identityResourceRepository.UpdateIdentityResourceAsync(resource);
+            var saved = await IdentityResourceRepository.AddIdentityResourceAsync(resource);
+
+            await AuditEventLogger.LogEventAsync(new IdentityResourceAddedEvent(identityResource));
+
+            return saved;
         }
 
-        public async Task<int> DeleteIdentityResourceAsync(IdentityResourceDto identityResource)
+        public virtual async Task<int> UpdateIdentityResourceAsync(IdentityResourceDto identityResource)
+        {
+            var canInsert = await CanInsertIdentityResourceAsync(identityResource);
+            if (!canInsert)
+            {
+                throw new UserFriendlyViewException(string.Format(IdentityResourceServiceResources.IdentityResourceExistsValue().Description, identityResource.Name), IdentityResourceServiceResources.IdentityResourceExistsKey().Description, identityResource);
+            }
+
+            var resource = identityResource.ToEntity();
+
+            var originalIdentityResource = await GetIdentityResourceAsync(resource.Id);
+
+            var updated = await IdentityResourceRepository.UpdateIdentityResourceAsync(resource);
+            
+            await AuditEventLogger.LogEventAsync(new IdentityResourceUpdatedEvent(originalIdentityResource, identityResource));
+
+            return updated;
+        }
+
+        public virtual async Task<int> DeleteIdentityResourceAsync(IdentityResourceDto identityResource)
         {
             var resource = identityResource.ToEntity();
 
-            return await _identityResourceRepository.DeleteIdentityResourceAsync(resource);
+            var deleted = await IdentityResourceRepository.DeleteIdentityResourceAsync(resource);
+
+            await AuditEventLogger.LogEventAsync(new IdentityResourceDeletedEvent(identityResource));
+
+            return deleted;
         }
 
-        public IdentityResourceDto BuildIdentityResourceViewModel(IdentityResourceDto identityResource)
+        public virtual IdentityResourceDto BuildIdentityResourceViewModel(IdentityResourceDto identityResource)
         {
             ComboBoxHelpers.PopulateValuesToList(identityResource.UserClaimsItems, identityResource.UserClaims);
 

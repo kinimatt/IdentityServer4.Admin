@@ -1,6 +1,5 @@
 ﻿@using Microsoft.AspNetCore.Mvc.Localization
-@using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Dtos.Identity
-@model UserDto<string>
+@model Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Dtos.Identity.Interfaces.IUserDto
 @inject IViewLocalizer Localizer
 
 @{
@@ -27,7 +26,7 @@
 
     <div asp-validation-summary="All" class="text-danger"></div>
 
-    @if (!EqualityComparer<string>.Default.Equals(Model.Id, default(string)))
+    @if (!Model.IsDefaultId())
     {
         <!--Button-->
         <div class="form-group row">
@@ -35,6 +34,7 @@
                 <a asp-action="UserClaims" asp-route-id="@Model.Id" class="btn btn-outline-primary">@Localizer["ButtonManageUserClaims"]</a>
                 <a asp-action="UserRoles" asp-route-id="@Model.Id" class="btn btn-outline-primary">@Localizer["ButtonManageUserRoles"]</a>
                 <a asp-action="UserProviders" asp-route-id="@Model.Id" class="btn btn-outline-primary">@Localizer["ButtonManageUserExternalProviders"]</a>
+                <a asp-action="AuditLog" asp-controller="Log" asp-route-subjectIdentifier="@Model.Id" class="btn btn-primary">@Localizer["Audit Log"]</a>
                 <a asp-action="UserChangePassword" asp-route-id="@Model.Id" class="btn btn-dark">@Localizer["ButtonChangePassword"]</a>
                 <a asp-action="UserDelete" asp-route-id="@Model.Id" class="btn btn-danger">@Localizer["ButtonDeleteUser"]</a>
             </div>

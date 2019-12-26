@@ -14,31 +14,35 @@ using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Localization;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
-using Skoruba.IdentityServer4.Admin.BusinessLogic.Extensions;
+using Skoruba.AuditLogging.EntityFramework.Entities;
+using Skoruba.AuditLogging.EntityFramework.Extensions;
+using Skoruba.AuditLogging.EntityFramework.Repositories;
+using Skoruba.AuditLogging.EntityFramework.Services;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Dtos.Identity;
-using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Extensions;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Identity.Services.Interfaces;
 using Skoruba.IdentityServer4.Admin.Controllers;
-using Skoruba.IdentityServer4.Admin.EntityFramework.DbContexts;
-using Skoruba.IdentityServer4.Admin.EntityFramework.Identity.Entities.Identity;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Shared.DbContexts;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Shared.Entities.Identity;
 using Skoruba.IdentityServer4.Admin.UnitTests.Mocks;
 using Skoruba.IdentityServer4.Admin.Helpers;
+using Skoruba.IdentityServer4.Admin.Helpers.Localization;
 using Xunit;
+using System.Security.Claims;
 
 namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
 {
     public class IdentityControllerTests
     {
-        private IIdentityService<AdminDbContext, UserDto<string>, string, RoleDto<string>, string, string, string,
+        private IIdentityService<UserDto<string>, string, RoleDto<string>, string, string, string,
             UserIdentity, UserIdentityRole, string, UserIdentityUserClaim, UserIdentityUserRole,
             UserIdentityUserLogin, UserIdentityRoleClaim, UserIdentityUserToken,
             UsersDto<UserDto<string>, string>, RolesDto<RoleDto<string>, string>, UserRolesDto<RoleDto<string>, string, string>,
             UserClaimsDto<string>, UserProviderDto<string>, UserProvidersDto<string>, UserChangePasswordDto<string>,
             RoleClaimsDto<string>> GetIdentityService(IServiceProvider services)
         {
-            return services.GetRequiredService<IIdentityService<AdminDbContext, UserDto<string>, string, RoleDto<string>, string, string, string,
+            return services.GetRequiredService<IIdentityService<UserDto<string>, string, RoleDto<string>, string, string, string,
                 UserIdentity, UserIdentityRole, string, UserIdentityUserClaim, UserIdentityUserRole,
                 UserIdentityUserLogin, UserIdentityRoleClaim, UserIdentityUserToken,
                 UsersDto<UserDto<string>, string>, RolesDto<RoleDto<string>, string>, UserRolesDto<RoleDto<string>, string, string>,
@@ -52,7 +56,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
         {
             //Get Services
             var serviceProvider = GetServices();
-            var dbContext = serviceProvider.GetRequiredService<AdminDbContext>();
+            var dbContext = serviceProvider.GetRequiredService<AdminIdentityDbContext>();
             var identityService = GetIdentityService(serviceProvider);
 
             // Get controller
@@ -77,7 +81,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
         {
             //Get Services
             var serviceProvider = GetServices();
-            var dbContext = serviceProvider.GetRequiredService<AdminDbContext>();
+            var dbContext = serviceProvider.GetRequiredService<AdminIdentityDbContext>();
             var identityService = GetIdentityService(serviceProvider);
 
             // Get controller
@@ -89,13 +93,28 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
             var userId = await dbContext.Users.Where(x => x.UserName == userDto.UserName).Select(x => x.Id).SingleOrDefaultAsync();
             userDto.Id = userId;
 
+            // A user cannot delete own account
+            var subjectClaim = new Claim(IdentityModel.JwtClaimTypes.Subject, userDto.Id);
+            ProvideControllerContextWithClaimsPrincipal(controller, subjectClaim);            
+            
             var result = await controller.UserDelete(userDto);
 
             // Assert            
             var viewResult = Assert.IsType<RedirectToActionResult>(result);
-            viewResult.ActionName.Should().Be("Users");
+            viewResult.ActionName.Should().Be("UserDelete", "Users cannot delete their own account");
 
             var user = await dbContext.Users.Where(x => x.Id == userDto.Id).SingleOrDefaultAsync();
+            user.Should().NotBeNull();
+
+            subjectClaim = new Claim(IdentityModel.JwtClaimTypes.Subject, "1");
+            ProvideControllerContextWithClaimsPrincipal(controller, subjectClaim);
+            result = await controller.UserDelete(userDto);
+
+            // Assert            
+            viewResult = Assert.IsType<RedirectToActionResult>(result);
+            viewResult.ActionName.Should().Be("Users");
+
+            user = await dbContext.Users.Where(x => x.Id == userDto.Id).SingleOrDefaultAsync();
             user.Should().BeNull();
         }
 
@@ -104,7 +123,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
         {
             //Get Services
             var serviceProvider = GetServices();
-            var dbContext = serviceProvider.GetRequiredService<AdminDbContext>();
+            var dbContext = serviceProvider.GetRequiredService<AdminIdentityDbContext>();
             var identityService = GetIdentityService(serviceProvider);
 
             // Get controller
@@ -133,7 +152,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
         {
             //Get Services
             var serviceProvider = GetServices();
-            var dbContext = serviceProvider.GetRequiredService<AdminDbContext>();
+            var dbContext = serviceProvider.GetRequiredService<AdminIdentityDbContext>();
             var identityService = GetIdentityService(serviceProvider);
 
             // Get controller
@@ -166,7 +185,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
         {
             //Get Services
             var serviceProvider = GetServices();
-            var dbContext = serviceProvider.GetRequiredService<AdminDbContext>();
+            var dbContext = serviceProvider.GetRequiredService<AdminIdentityDbContext>();
             var identityService = GetIdentityService(serviceProvider);
 
             // Get controller
@@ -191,7 +210,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
         {
             //Get Services
             var serviceProvider = GetServices();
-            var dbContext = serviceProvider.GetRequiredService<AdminDbContext>();
+            var dbContext = serviceProvider.GetRequiredService<AdminIdentityDbContext>();
             var identityService = GetIdentityService(serviceProvider);
 
             // Get controller
@@ -219,7 +238,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
         {
             //Get Services
             var serviceProvider = GetServices();
-            var dbContext = serviceProvider.GetRequiredService<AdminDbContext>();
+            var dbContext = serviceProvider.GetRequiredService<AdminIdentityDbContext>();
             var identityService = GetIdentityService(serviceProvider);
 
             // Get controller
@@ -246,7 +265,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
         {
             //Get Services
             var serviceProvider = GetServices();
-            var dbContext = serviceProvider.GetRequiredService<AdminDbContext>();
+            var dbContext = serviceProvider.GetRequiredService<AdminIdentityDbContext>();
             var identityService = GetIdentityService(serviceProvider);
 
             // Get controller
@@ -274,7 +293,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
         {
             //Get Services
             var serviceProvider = GetServices();
-            var dbContext = serviceProvider.GetRequiredService<AdminDbContext>();
+            var dbContext = serviceProvider.GetRequiredService<AdminIdentityDbContext>();
             var identityService = GetIdentityService(serviceProvider);
 
             // Get controller
@@ -304,7 +323,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
         {
             //Get Services
             var serviceProvider = GetServices();
-            var dbContext = serviceProvider.GetRequiredService<AdminDbContext>();
+            var dbContext = serviceProvider.GetRequiredService<AdminIdentityDbContext>();
             var identityService = GetIdentityService(serviceProvider);
 
             // Get controller
@@ -342,7 +361,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
         {
             //Get Services
             var serviceProvider = GetServices();
-            var dbContext = serviceProvider.GetRequiredService<AdminDbContext>();
+            var dbContext = serviceProvider.GetRequiredService<AdminIdentityDbContext>();
             var identityService = GetIdentityService(serviceProvider);
 
             // Get controller
@@ -379,7 +398,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
         {
             //Get Services
             var serviceProvider = GetServices();
-            var dbContext = serviceProvider.GetRequiredService<AdminDbContext>();
+            var dbContext = serviceProvider.GetRequiredService<AdminIdentityDbContext>();
             var identityService = GetIdentityService(serviceProvider);
 
             // Get controller
@@ -411,7 +430,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
         {
             //Get Services
             var serviceProvider = GetServices();
-            var dbContext = serviceProvider.GetRequiredService<AdminDbContext>();
+            var dbContext = serviceProvider.GetRequiredService<AdminIdentityDbContext>();
             var identityService = GetIdentityService(serviceProvider);
 
             // Get controller
@@ -442,7 +461,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
         {
             //Get Services
             var serviceProvider = GetServices();
-            var dbContext = serviceProvider.GetRequiredService<AdminDbContext>();
+            var dbContext = serviceProvider.GetRequiredService<AdminIdentityDbContext>();
             var identityService = GetIdentityService(serviceProvider);
 
             // Get controller
@@ -474,7 +493,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
         {
             //Get Services
             var serviceProvider = GetServices();
-            var dbContext = serviceProvider.GetRequiredService<AdminDbContext>();
+            var dbContext = serviceProvider.GetRequiredService<AdminIdentityDbContext>();
             var identityService = GetIdentityService(serviceProvider);
 
             // Get controller
@@ -502,7 +521,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
         {
             //Get Services
             var serviceProvider = GetServices();
-            var dbContext = serviceProvider.GetRequiredService<AdminDbContext>();
+            var dbContext = serviceProvider.GetRequiredService<AdminIdentityDbContext>();
             var identityService = GetIdentityService(serviceProvider);
 
             // Get controller
@@ -530,16 +549,31 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
             userProvider.Should().BeNull();
         }
 
-        private IdentityController PrepareIdentityController(IServiceProvider serviceProvider)
+        private IdentityController<UserDto<string>, string, RoleDto<string>, string, string, string,
+            UserIdentity, UserIdentityRole, string, UserIdentityUserClaim, UserIdentityUserRole,
+            UserIdentityUserLogin, UserIdentityRoleClaim, UserIdentityUserToken,
+            UsersDto<UserDto<string>, string>, RolesDto<RoleDto<string>, string>, UserRolesDto<RoleDto<string>, string, string>,
+            UserClaimsDto<string>, UserProviderDto<string>, UserProvidersDto<string>, UserChangePasswordDto<string>,
+            RoleClaimsDto<string>> PrepareIdentityController(IServiceProvider serviceProvider)
         {
             // Arrange
-            var localizer = serviceProvider.GetRequiredService<IStringLocalizer<IdentityController>>();
+            var localizer = serviceProvider.GetRequiredService<IGenericControllerLocalizer<IdentityController<UserDto<string>, string, RoleDto<string>, string, string, string,
+                UserIdentity, UserIdentityRole, string, UserIdentityUserClaim, UserIdentityUserRole,
+                UserIdentityUserLogin, UserIdentityRoleClaim, UserIdentityUserToken,
+                UsersDto<UserDto<string>, string>, RolesDto<RoleDto<string>, string>, UserRolesDto<RoleDto<string>, string, string>,
+                UserClaimsDto<string>, UserProviderDto<string>, UserProvidersDto<string>, UserChangePasswordDto<string>,
+                RoleClaimsDto<string>>>>();
             var logger = serviceProvider.GetRequiredService<ILogger<ConfigurationController>>();
             var tempDataDictionaryFactory = serviceProvider.GetRequiredService<ITempDataDictionaryFactory>();
             var identityService = GetIdentityService(serviceProvider);
 
             //Get Controller
-            var controller = new IdentityController(identityService, logger, localizer);
+            var controller = new IdentityController<UserDto<string>, string, RoleDto<string>, string, string, string,
+                UserIdentity, UserIdentityRole, string, UserIdentityUserClaim, UserIdentityUserRole,
+                UserIdentityUserLogin, UserIdentityRoleClaim, UserIdentityUserToken,
+                UsersDto<UserDto<string>, string>, RolesDto<RoleDto<string>, string>, UserRolesDto<RoleDto<string>, string, string>,
+                UserClaimsDto<string>, UserProviderDto<string>, UserProvidersDto<string>, UserChangePasswordDto<string>,
+                RoleClaimsDto<string>>(identityService, logger, localizer);
 
             //Setup TempData for notofication in basecontroller
             var httpContext = serviceProvider.GetRequiredService<IHttpContextAccessor>().HttpContext;
@@ -558,7 +592,8 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
             //Entity framework
             var efServiceProvider = new ServiceCollection().AddEntityFrameworkInMemoryDatabase().BuildServiceProvider();
             services.AddOptions();
-            services.AddDbContext<AdminDbContext>(b => b.UseInMemoryDatabase(Guid.NewGuid().ToString()).UseInternalServiceProvider(efServiceProvider));
+            services.AddDbContext<AdminIdentityDbContext>(b => b.UseInMemoryDatabase(Guid.NewGuid().ToString()).UseInternalServiceProvider(efServiceProvider));
+            services.AddDbContext<AdminAuditLogDbContext>(b => b.UseInMemoryDatabase(Guid.NewGuid().ToString()).UseInternalServiceProvider(efServiceProvider));
 
             //Http Context
             var context = new DefaultHttpContext();
@@ -568,25 +603,34 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
             services.AddSingleton<ConfigurationStoreOptions>();
             services.AddSingleton<OperationalStoreOptions>();
 
+            //Audit logging
+            services.AddAuditLogging()
+                .AddDefaultEventData()
+                .AddAuditSinks<DatabaseAuditEventLoggerSink<AuditLog>>();
+            services.AddTransient<IAuditLoggingRepository<AuditLog>, AuditLoggingRepository<AdminAuditLogDbContext, AuditLog>>();
+
+
             //Add Admin services
             services.AddMvcExceptionFilters();
 
-            services.AddAdminServices<AdminDbContext>();
+            services.AddAdminServices<IdentityServerConfigurationDbContext, IdentityServerPersistedGrantDbContext, AdminLogDbContext>();
 
-            services.AddAdminAspNetIdentityServices<AdminDbContext, UserDto<string>, string, RoleDto<string>, string, string, string,
+            services.AddAdminAspNetIdentityServices<AdminIdentityDbContext, IdentityServerPersistedGrantDbContext,UserDto<string>, string, RoleDto<string>, string, string, string,
                 UserIdentity, UserIdentityRole, string, UserIdentityUserClaim, UserIdentityUserRole,
                 UserIdentityUserLogin, UserIdentityRoleClaim, UserIdentityUserToken,
                 UsersDto<UserDto<string>, string>, RolesDto<RoleDto<string>, string>, UserRolesDto<RoleDto<string>, string, string>,
                 UserClaimsDto<string>, UserProviderDto<string>, UserProvidersDto<string>, UserChangePasswordDto<string>,
-                RoleClaimsDto<string>>();
+                RoleClaimsDto<string>, UserClaimDto<string>, RoleClaimDto<string>>();
 
             services.AddIdentity<UserIdentity, UserIdentityRole>()
-                .AddEntityFrameworkStores<AdminDbContext>()
+                .AddEntityFrameworkStores<AdminIdentityDbContext>()
                 .AddDefaultTokenProviders();
 
             services.AddSession();
-            services.AddMvc()
-            .SetCompatibilityVersion(CompatibilityVersion.Version_2_1)
+
+            services.TryAddTransient(typeof(IGenericControllerLocalizer<>), typeof(GenericControllerLocalizer<>));
+
+            services.AddControllersWithViews()
             .AddViewLocalization(
                 LanguageViewLocationExpanderFormat.Suffix,
                 opts => { opts.ResourcesPath = "Resources"; })
@@ -609,6 +653,18 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Controllers
             services.AddLogging();
 
             return services.BuildServiceProvider();
+        }
+
+        private void ProvideControllerContextWithClaimsPrincipal(ControllerBase controller, params Claim[] claims)
+        {
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new System.Security.Claims.ClaimsPrincipal(
+                        new ClaimsIdentity(claims, "mock"))
+                }
+            };
         }
     }
 }

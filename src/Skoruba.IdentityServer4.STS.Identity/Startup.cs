@@ -2,9 +2,12 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Skoruba.IdentityServer4.Admin.EntityFramework.DbContexts;
-using Skoruba.IdentityServer4.Admin.EntityFramework.Identity.Entities.Identity;
+using Microsoft.Extensions.Hosting;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Shared.DbContexts;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Shared.Entities.Identity;
+using Skoruba.IdentityServer4.STS.Identity.Configuration;
+using Skoruba.IdentityServer4.STS.Identity.Configuration.Constants;
+using Skoruba.IdentityServer4.STS.Identity.Configuration.Interfaces;
 using Skoruba.IdentityServer4.STS.Identity.Helpers;
 
 namespace Skoruba.IdentityServer4.STS.Identity
@@ -12,49 +15,84 @@ namespace Skoruba.IdentityServer4.STS.Identity
     public class Startup
     {
         public IConfiguration Configuration { get; }
-        public IHostingEnvironment Environment { get; }
-        public ILogger Logger { get; set; }
+        public IWebHostEnvironment Environment { get; }
 
-        public Startup(IHostingEnvironment environment, ILoggerFactory loggerFactory)
+        public Startup(IWebHostEnvironment environment, IConfiguration configuration)
         {
-            var builder = new ConfigurationBuilder()
-                .SetBasePath(environment.ContentRootPath)
-                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-                .AddJsonFile($"appsettings.{environment.EnvironmentName}.json", optional: true, reloadOnChange: true)
-                .AddEnvironmentVariables();
-
-            if (environment.IsDevelopment())
-            {
-                builder.AddUserSecrets<Startup>();
-            }
-
-            Configuration = builder.Build();
+            Configuration = configuration;
             Environment = environment;
-            Logger = loggerFactory.CreateLogger<Startup>();
         }
 
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddDbContexts<AdminDbContext>(Configuration);
+            var rootConfiguration = CreateRootConfiguration();
+            services.AddSingleton(rootConfiguration);
+
+            // Register DbContexts for IdentityServer and Identity
+            RegisterDbContexts(services);
+
+            // Add email senders which is currently setup for SendGrid and SMTP
             services.AddEmailSenders(Configuration);
-            services.AddAuthenticationServices<AdminDbContext, UserIdentity, UserIdentityRole>(Environment, Configuration, Logger);
-            services.AddMvcLocalization();
+
+            // Add services for authentication, including Identity model and external providers
+            RegisterAuthentication(services);
+            
+            // Add all dependencies for Asp.Net Core Identity in MVC - these dependencies are injected into generic Controllers
+            // Including settings for MVC and Localization
+            // If you want to change primary keys or use another db model for Asp.Net Core Identity:
+            services.AddMvcWithLocalization<UserIdentity, string>(Configuration);
+
+            // Add authorization policies for MVC
+            RegisterAuthorization(services);
         }
 
-        public void Configure(IApplicationBuilder app, IHostingEnvironment env, ILoggerFactory loggerFactory)
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
-			app.AddLogging(loggerFactory, Configuration);
-
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
             }
 
+            // Add custom security headers
             app.UseSecurityHeaders();
+
             app.UseStaticFiles();
-            app.UseIdentityServer();
+            UseAuthentication(app);
             app.UseMvcLocalizationServices();
-            app.UseMvcWithDefaultRoute();
+
+            app.UseRouting();
+            app.UseAuthorization();
+            app.UseEndpoints(endpoint => { endpoint.MapDefaultControllerRoute(); });
+        }
+
+        public virtual void RegisterDbContexts(IServiceCollection services)
+        {
+            services.RegisterDbContexts<AdminIdentityDbContext, IdentityServerConfigurationDbContext, IdentityServerPersistedGrantDbContext>(Configuration);
+        }
+
+        public virtual void RegisterAuthentication(IServiceCollection services)
+        {
+            services.AddAuthenticationServices<AdminIdentityDbContext, UserIdentity, UserIdentityRole>(Configuration);
+            services.AddIdentityServer<IdentityServerConfigurationDbContext, IdentityServerPersistedGrantDbContext, UserIdentity>(Configuration);
+        }
+
+        public virtual void RegisterAuthorization(IServiceCollection services)
+        {
+            var rootConfiguration = CreateRootConfiguration();
+            services.AddAuthorizationPolicies(rootConfiguration);
+        }
+
+        public virtual void UseAuthentication(IApplicationBuilder app)
+        {
+            app.UseIdentityServer();
+        }
+
+        protected IRootConfiguration CreateRootConfiguration()
+        {
+            var rootConfiguration = new RootConfiguration();
+            Configuration.GetSection(ConfigurationConsts.AdminConfigurationKey).Bind(rootConfiguration.AdminConfiguration);
+            Configuration.GetSection(ConfigurationConsts.RegisterConfigurationKey).Bind(rootConfiguration.RegisterConfiguration);
+            return rootConfiguration;
         }
     }
 }

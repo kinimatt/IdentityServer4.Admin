@@ -5,13 +5,14 @@ using FluentAssertions;
 using IdentityServer4.EntityFramework.Options;
 using Microsoft.EntityFrameworkCore;
 using Moq;
+using Skoruba.AuditLogging.Services;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Mappers;
-using Skoruba.IdentityServer4.Admin.BusinessLogic.Repositories;
-using Skoruba.IdentityServer4.Admin.BusinessLogic.Repositories.Interfaces;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Resources;
-using Skoruba.IdentityServer4.Admin.EntityFramework.DbContexts;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Services;
 using Skoruba.IdentityServer4.Admin.BusinessLogic.Services.Interfaces;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Repositories;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Repositories.Interfaces;
+using Skoruba.IdentityServer4.Admin.EntityFramework.Shared.DbContexts;
 using Skoruba.IdentityServer4.Admin.UnitTests.Mocks;
 using Xunit;
 
@@ -23,7 +24,7 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
 		{
 			var databaseName = Guid.NewGuid().ToString();
 
-			_dbContextOptions = new DbContextOptionsBuilder<AdminDbContext>()
+			_dbContextOptions = new DbContextOptionsBuilder<IdentityServerConfigurationDbContext>()
 				.UseInMemoryDatabase(databaseName)
 				.Options;
 
@@ -31,38 +32,48 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
 			_operationalStore = new OperationalStoreOptions();
 		}
 
-		private readonly DbContextOptions<AdminDbContext> _dbContextOptions;
+		private readonly DbContextOptions<IdentityServerConfigurationDbContext> _dbContextOptions;
 		private readonly ConfigurationStoreOptions _storeOptions;
 		private readonly OperationalStoreOptions _operationalStore;
 
-		private IIdentityResourceRepository<AdminDbContext> GetIdentityResourceRepository(AdminDbContext context)
+		private IIdentityResourceRepository GetIdentityResourceRepository(IdentityServerConfigurationDbContext context)
 		{
-			IIdentityResourceRepository<AdminDbContext> identityResourceRepository = new IdentityResourceRepository<AdminDbContext>(context);
+			IIdentityResourceRepository identityResourceRepository = new IdentityResourceRepository<IdentityServerConfigurationDbContext>(context);
 
 			return identityResourceRepository;
 		}
 
-		private IIdentityResourceService<AdminDbContext> GetIdentityResourceService(IIdentityResourceRepository<AdminDbContext> repository, IIdentityResourceServiceResources identityResourceServiceResources)
+		private IIdentityResourceService GetIdentityResourceService(IIdentityResourceRepository repository, IIdentityResourceServiceResources identityResourceServiceResources, IAuditEventLogger auditEventLogger)
 		{
-			IIdentityResourceService<AdminDbContext> identityResourceService = new IdentityResourceService<AdminDbContext>(repository, identityResourceServiceResources);
+			IIdentityResourceService identityResourceService = new IdentityResourceService(repository, identityResourceServiceResources, auditEventLogger);
 
 			return identityResourceService;
 		}
 
-		[Fact]
+        private IIdentityResourceService GetIdentityResourceService(IdentityServerConfigurationDbContext context)
+        {
+            var identityResourceRepository = GetIdentityResourceRepository(context);
+
+            var localizerIdentityResourceMock = new Mock<IIdentityResourceServiceResources>();
+            var localizerIdentityResource = localizerIdentityResourceMock.Object;
+
+            var auditLoggerMock = new Mock<IAuditEventLogger>();
+            var auditLogger = auditLoggerMock.Object;
+
+            var identityResourceService = GetIdentityResourceService(identityResourceRepository, localizerIdentityResource, auditLogger);
+
+            return identityResourceService;
+        }
+
+        [Fact]
 		public async Task AddIdentityResourceAsync()
 		{
-			using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
-			{
-				var identityResourceRepository = GetIdentityResourceRepository(context);
+			using (var context = new IdentityServerConfigurationDbContext(_dbContextOptions, _storeOptions))
+            {
+                var identityResourceService = GetIdentityResourceService(context);
 
-				var localizerIdentityResourceMock = new Mock<IIdentityResourceServiceResources>();
-				var localizerIdentityResource = localizerIdentityResourceMock.Object;
-
-				var identityResourceService = GetIdentityResourceService(identityResourceRepository, localizerIdentityResource);
-
-				//Generate random new identity resource
-				var identityResourceDto = IdentityResourceDtoMock.GenerateRandomIdentityResource(0);
+                //Generate random new identity resource
+                var identityResourceDto = IdentityResourceDtoMock.GenerateRandomIdentityResource(0);
 
 				await identityResourceService.AddIdentityResourceAsync(identityResourceDto);
 
@@ -79,17 +90,12 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
 		[Fact]
 		public async Task GetIdentityResourceAsync()
 		{
-			using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+			using (var context = new IdentityServerConfigurationDbContext(_dbContextOptions, _storeOptions))
 			{
-				var identityResourceRepository = GetIdentityResourceRepository(context);
-
-				var localizerIdentityResourceMock = new Mock<IIdentityResourceServiceResources>();
-				var localizerIdentityResource = localizerIdentityResourceMock.Object;
-
-				var identityResourceService = GetIdentityResourceService(identityResourceRepository, localizerIdentityResource);
-
-				//Generate random new identity resource
-				var identityResourceDto = IdentityResourceDtoMock.GenerateRandomIdentityResource(0);
+                var identityResourceService = GetIdentityResourceService(context);
+                
+                //Generate random new identity resource
+                var identityResourceDto = IdentityResourceDtoMock.GenerateRandomIdentityResource(0);
 
 				await identityResourceService.AddIdentityResourceAsync(identityResourceDto);
 
@@ -106,17 +112,12 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
 		[Fact]
 		public async Task RemoveIdentityResourceAsync()
 		{
-			using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+			using (var context = new IdentityServerConfigurationDbContext(_dbContextOptions, _storeOptions))
 			{
-				var identityResourceRepository = GetIdentityResourceRepository(context);
-
-				var localizerIdentityResourceMock = new Mock<IIdentityResourceServiceResources>();
-				var localizerIdentityResource = localizerIdentityResourceMock.Object;
-
-				var identityResourceService = GetIdentityResourceService(identityResourceRepository, localizerIdentityResource);
-
-				//Generate random new identity resource
-				var identityResourceDto = IdentityResourceDtoMock.GenerateRandomIdentityResource(0);
+                var identityResourceService = GetIdentityResourceService(context);
+                
+                //Generate random new identity resource
+                var identityResourceDto = IdentityResourceDtoMock.GenerateRandomIdentityResource(0);
 
 				await identityResourceService.AddIdentityResourceAsync(identityResourceDto);
 
@@ -143,17 +144,12 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
 		[Fact]
 		public async Task UpdateIdentityResourceAsync()
 		{
-			using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+			using (var context = new IdentityServerConfigurationDbContext(_dbContextOptions, _storeOptions))
 			{
-				var identityResourceRepository = GetIdentityResourceRepository(context);
+                var identityResourceService = GetIdentityResourceService(context);
 
-				var localizerIdentityResourceMock = new Mock<IIdentityResourceServiceResources>();
-				var localizerIdentityResource = localizerIdentityResourceMock.Object;
-
-				var identityResourceService = GetIdentityResourceService(identityResourceRepository, localizerIdentityResource);
-
-				//Generate random new identity resource
-				var identityResourceDto = IdentityResourceDtoMock.GenerateRandomIdentityResource(0);
+                //Generate random new identity resource
+                var identityResourceDto = IdentityResourceDtoMock.GenerateRandomIdentityResource(0);
 
 				await identityResourceService.AddIdentityResourceAsync(identityResourceDto);
 
@@ -184,17 +180,12 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
 		[Fact]
 		public async Task AddIdentityResourcePropertyAsync()
 		{
-			using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+			using (var context = new IdentityServerConfigurationDbContext(_dbContextOptions, _storeOptions))
 			{
-				var identityResourceRepository = GetIdentityResourceRepository(context);
+                var identityResourceService = GetIdentityResourceService(context);
 
-				var localizerIdentityResourceMock = new Mock<IIdentityResourceServiceResources>();
-				var localizerIdentityResource = localizerIdentityResourceMock.Object;
-
-				var identityResourceService = GetIdentityResourceService(identityResourceRepository, localizerIdentityResource);
-
-				//Generate random new identity resource
-				var identityResource = IdentityResourceDtoMock.GenerateRandomIdentityResource(0);
+                //Generate random new identity resource
+                var identityResource = IdentityResourceDtoMock.GenerateRandomIdentityResource(0);
 
 				await identityResourceService.AddIdentityResourceAsync(identityResource);
 
@@ -232,17 +223,12 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
 		[Fact]
 		public async Task GetIdentityResourcePropertyAsync()
 		{
-			using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+			using (var context = new IdentityServerConfigurationDbContext(_dbContextOptions, _storeOptions))
 			{
-				var identityResourceRepository = GetIdentityResourceRepository(context);
+                var identityResourceService = GetIdentityResourceService(context);
 
-				var localizerIdentityResourceMock = new Mock<IIdentityResourceServiceResources>();
-				var localizerIdentityResource = localizerIdentityResourceMock.Object;
-
-				var identityResourceService = GetIdentityResourceService(identityResourceRepository, localizerIdentityResource);
-
-				//Generate random new identity resource
-				var identityResource = IdentityResourceDtoMock.GenerateRandomIdentityResource(0);
+                //Generate random new identity resource
+                var identityResource = IdentityResourceDtoMock.GenerateRandomIdentityResource(0);
 
 				await identityResourceService.AddIdentityResourceAsync(identityResource);
 
@@ -280,17 +266,12 @@ namespace Skoruba.IdentityServer4.Admin.UnitTests.Services
 		[Fact]
 		public async Task DeleteIdentityResourcePropertyAsync()
 		{
-			using (var context = new AdminDbContext(_dbContextOptions, _storeOptions, _operationalStore))
+			using (var context = new IdentityServerConfigurationDbContext(_dbContextOptions, _storeOptions))
 			{
-				var identityResourceRepository = GetIdentityResourceRepository(context);
+                var identityResourceService = GetIdentityResourceService(context);
 
-				var localizerIdentityResourceMock = new Mock<IIdentityResourceServiceResources>();
-				var localizerIdentityResource = localizerIdentityResourceMock.Object;
-
-				var identityResourceService = GetIdentityResourceService(identityResourceRepository, localizerIdentityResource);
-
-				//Generate random new identity resource
-				var resourceDto = IdentityResourceDtoMock.GenerateRandomIdentityResource(0);
+                //Generate random new identity resource
+                var resourceDto = IdentityResourceDtoMock.GenerateRandomIdentityResource(0);
 
 				await identityResourceService.AddIdentityResourceAsync(resourceDto);
 
