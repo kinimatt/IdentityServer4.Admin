@@ -9,6 +9,14 @@ using Skoruba.IdentityServer4.STS.Identity.Configuration;
 using Skoruba.IdentityServer4.STS.Identity.Configuration.Constants;
 using Skoruba.IdentityServer4.STS.Identity.Configuration.Interfaces;
 using Skoruba.IdentityServer4.STS.Identity.Helpers;
+using System;
+using IdentityModel.Client;
+using System.Net.Http;
+using Microsoft.AspNetCore.DataProtection;
+using System.IO;
+
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 
 namespace Skoruba.IdentityServer4.STS.Identity
 {
@@ -40,10 +48,25 @@ namespace Skoruba.IdentityServer4.STS.Identity
             // Add all dependencies for Asp.Net Core Identity in MVC - these dependencies are injected into generic Controllers
             // Including settings for MVC and Localization
             // If you want to change primary keys or use another db model for Asp.Net Core Identity:
-            services.AddMvcWithLocalization<UserIdentity, string>(Configuration);
+            services.AddMvcWithLocalization<UserIdentity, string>(Configuration).AddNewtonsoftJson();
 
             // Add authorization policies for MVC
             RegisterAuthorization(services);
+
+            RegisterDataProtection(services);
+
+            services.AddHttpClient("IDS", c =>
+            {
+                c.BaseAddress = new Uri(Configuration.GetValue<string>("BaseUrl"));
+            });
+
+            services.AddSingleton<IDiscoveryCache>(r =>
+            {
+                var factory = r.GetRequiredService<IHttpClientFactory>();
+                return new DiscoveryCache(Configuration.GetValue<string>("BaseUrl"), () => factory.CreateClient());
+            });
+
+
         }
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
@@ -63,6 +86,112 @@ namespace Skoruba.IdentityServer4.STS.Identity
             app.UseRouting();
             app.UseAuthorization();
             app.UseEndpoints(endpoint => { endpoint.MapDefaultControllerRoute(); });
+        }
+
+        public virtual void RegisterDataProtection(IServiceCollection services)
+        {
+       
+
+        var dataProtectionConfiguration = Configuration.GetSection(nameof(DataProtectionConfiguration)).Get<DataProtectionConfiguration>();
+
+
+            var builder = services.AddDataProtection()
+             .SetDefaultKeyLifetime(TimeSpan.FromDays(365));
+
+            if (!string.IsNullOrWhiteSpace(dataProtectionConfiguration.ApplicationName))
+            {
+                builder.SetApplicationName(dataProtectionConfiguration.ApplicationName);
+            }
+            
+
+            if (dataProtectionConfiguration.UseLocalStorage)
+            {
+                if (string.IsNullOrWhiteSpace(dataProtectionConfiguration.LocalStoragePath))
+                {
+                    throw new Exception("Data protection configuration: Local Storage path not specified");
+                }
+
+                if (Directory.Exists(dataProtectionConfiguration.LocalStoragePath))
+                {
+                    try
+                    {
+                        builder.PersistKeysToFileSystem(new DirectoryInfo(dataProtectionConfiguration.LocalStoragePath));
+                    }
+                    catch (Exception e)
+                    {
+                        throw new Exception("There was an error adding the key file - during the creation of the signing key", e);
+                    }
+                }
+                else
+                {
+                    throw new Exception($"Data protection configuration: {dataProtectionConfiguration.LocalStoragePath} not found");
+                }
+            } 
+
+            if (dataProtectionConfiguration.UseAzureBlobStorage)
+            {
+                if (string.IsNullOrWhiteSpace(dataProtectionConfiguration.AzureBlobUriWithSasToken))
+                {
+                    throw new Exception("Data protection configuration: AzureBlobUriWithSasToken not specified");
+                }
+
+                try
+                    {
+                        builder.PersistKeysToAzureBlobStorage(new Uri(dataProtectionConfiguration.LocalStoragePath));
+                        builder.ProtectKeysWithAzureKeyVault(dataProtectionConfiguration.AzureKeyIdentifier, dataProtectionConfiguration.AzureClientId, dataProtectionConfiguration.AzureClientSecret);
+                     }
+                    catch (Exception e)
+                    {
+                        throw new Exception("Data protection configuration: There was an error adding azure blog storage", e);
+                    }
+            }
+
+            if (dataProtectionConfiguration.UseCertificateThumbprint)
+            {
+                if (string.IsNullOrWhiteSpace(dataProtectionConfiguration.CertificateThumbprint))
+                {
+                    throw new Exception("Data protection configuration: CertificateThumbprint not specified");
+                }
+
+                try
+                    {
+                        builder.ProtectKeysWithCertificate(dataProtectionConfiguration.CertificateThumbprint);
+                    }
+                    catch (Exception e)
+                    {
+                        throw new Exception("Data protection configuration: There was an error adding CertificateThumbprint", e);
+                    }
+            }
+
+            if (dataProtectionConfiguration.UseCertificatePfxFile)
+            {
+                if (string.IsNullOrWhiteSpace(dataProtectionConfiguration.CertificatePfxFilePath))
+                {
+                    throw new Exception("Data protection configuration: CertificatePfxFilePath not specified");
+                }
+
+
+                if (File.Exists(dataProtectionConfiguration.CertificatePfxFilePath))
+                {
+                    try
+                    {
+                        builder.ProtectKeysWithCertificate(new X509Certificate2(dataProtectionConfiguration.CertificatePfxFilePath, dataProtectionConfiguration.CertificatePfxFilePassword));
+                    }
+                    catch (Exception e)
+                    {
+                        throw new Exception("Data protection configuration: There was an error adding the CertificatePfxFilePath", e);
+                    }
+                }
+                else
+                {
+                    throw new Exception($"Data protection configuration: {dataProtectionConfiguration.CertificatePfxFilePath} not found");
+                }
+                
+            }
+            
+            //TODO use this when exipred keys needs to be used
+            /*.UnprotectKeysWithAnyCertificate(new X509Certificate2("certificate_old_1.pfx", "password_1"),
+                new X509Certificate2("certificate_old_2.pfx", "password_2"));*/
         }
 
         public virtual void RegisterDbContexts(IServiceCollection services)
