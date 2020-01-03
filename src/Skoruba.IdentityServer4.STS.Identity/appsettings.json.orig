@@ -4,6 +4,17 @@
     "PersistedGrantDbConnection": "Server=.\\sqlexpress;Database=XFrameworkIdentityServer;Trusted_Connection=True;MultipleActiveResultSets=true",
     "IdentityDbConnection": "Server=.\\sqlexpress;Database=XFrameworkIdentityServer;Trusted_Connection=True;MultipleActiveResultSets=true"
   },
+  "DatabaseProviderConfiguration": {
+    "ProviderType": "SqlServer"
+  },
+  "Serilog": {
+    "MinimumLevel": {
+      "Default": "Error",
+      "Override": {
+        "Skoruba": "Information"
+      }
+    },
+<<<<<<< HEAD
     "DatabaseProviderConfiguration": {
         "ProviderType": "SqlServer"
     },
@@ -38,7 +49,32 @@
             }
         ]
     },
+    "CertificateConfiguration": {
+=======
+    "WriteTo": [
+      {
+        "Name": "File",
+        "Args": {
+          "path": "Log\\skoruba_admin.txt",
+          "rollingInterval": "Day"
+        }
+      },
+      {
+        "Name": "MSSqlServer",
+        "Args": {
+          "connectionString": "Server=.\\sqlexpress;Database=XFrameworkIdentityServer;Trusted_Connection=True;MultipleActiveResultSets=true",
+          "tableName": "Log",
+          "columnOptionsSection": {
+            "addStandardColumns": [ "LogEvent" ],
+            "removeStandardColumns": [ "Properties" ]
+          }
+        }
+      }
+    ]
+  },
   "CertificateConfiguration": {
+>>>>>>> test
+
     "UseTemporarySigningKeyForDevelopment": false,
 
     "CertificateStoreLocation": "LocalMachine",
@@ -124,4 +160,42 @@
 
   }
 
+<<<<<<< HEAD
+        "UseValidationCertificateThumbprint": false,
+        "ValidationCertificateThumbprint": ""
+    },
+    "RegisterConfiguration": {
+        "Enabled": true
+    },
+    "ExternalProvidersConfiguration": {
+        "UseGitHubProvider": false,
+        "GitHubClientId": "",
+        "GitHubClientSecret": ""
+    },
+    "SmtpConfiguration": {
+        "Host": "",
+        "Login": "",
+        "Password": ""
+    },
+    "SendgridConfiguration": {
+        "ApiKey": "",
+        "SourceEmail": "",
+        "SourceName": ""
+    },
+    "LoginConfiguration": {
+        "ResolutionPolicy": "Username"
+    },
+    "AdminConfiguration": {
+        "PageTitle": "Skoruba IdentityServer4",
+        "HomePageLogoUri": "/images/skoruba-icon.png",
+        "FaviconUri": "/favicon.ico",
+        "IdentityAdminBaseUrl": "http://localhost:9000",
+        "AdministrationRole": "SkorubaIdentityAdminAdministrator"
+    },
+  "CultureConfiguration": {
+    "Cultures": [],
+    "DefaultCulture": null
+  }
+=======
+>>>>>>> test
 }

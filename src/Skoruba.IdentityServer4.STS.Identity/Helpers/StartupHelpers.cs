@@ -318,6 +318,26 @@ namespace Skoruba.IdentityServer4.STS.Identity.Helpers
                     options.Scope.Add("user:email");
                 });
             }
+
+            if (externalProviderConfiguration.UseFacebookProvider)
+            {
+                authenticationBuilder.AddFacebook(options =>
+                {
+                    options.ClientId = externalProviderConfiguration.FacebookClientId;
+                    options.ClientSecret = externalProviderConfiguration.FacebookClientSecret;
+                    //options.Scope.Add("user:email");
+                });
+            }
+
+            if (externalProviderConfiguration.UseGoogleProvider)
+            {
+                authenticationBuilder.AddGoogle(options =>
+                {
+                    options.ClientId = externalProviderConfiguration.GoogleClientId;
+                    options.ClientSecret = externalProviderConfiguration.GoogleClientSecret;
+                    //options.Scope.Add("user:email");
+                });
+            }
         }
 
         /// <summary>

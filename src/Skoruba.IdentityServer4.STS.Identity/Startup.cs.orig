@@ -55,9 +55,9 @@ namespace Skoruba.IdentityServer4.STS.Identity
             // Add authorization policies for MVC
             RegisterAuthorization(services);
 
-
+<<<<<<< HEAD
             services.AddIdSHealthChecks<IdentityServerConfigurationDbContext, IdentityServerPersistedGrantDbContext, AdminIdentityDbContext>(Configuration);
-
+=======
             RegisterDataProtection(services);
 
             services.AddHttpClient("IDS", c =>
@@ -71,6 +71,8 @@ namespace Skoruba.IdentityServer4.STS.Identity
                 return new DiscoveryCache(Configuration.GetValue<string>("BaseUrl"), () => factory.CreateClient());
             });
 
+
+>>>>>>> test
         }
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
@@ -89,7 +91,7 @@ namespace Skoruba.IdentityServer4.STS.Identity
 
             app.UseRouting();
             app.UseAuthorization();
-
+<<<<<<< HEAD
             app.UseEndpoints(endpoint => 
             { 
                 endpoint.MapDefaultControllerRoute();
@@ -98,6 +100,8 @@ namespace Skoruba.IdentityServer4.STS.Identity
                     ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
                 });
             });
+=======
+            app.UseEndpoints(endpoint => { endpoint.MapDefaultControllerRoute(); });
         }
 
         public virtual void RegisterDataProtection(IServiceCollection services)
@@ -204,7 +208,7 @@ namespace Skoruba.IdentityServer4.STS.Identity
             //TODO use this when exipred keys needs to be used
             /*.UnprotectKeysWithAnyCertificate(new X509Certificate2("certificate_old_1.pfx", "password_1"),
                 new X509Certificate2("certificate_old_2.pfx", "password_2"));*/
-
+>>>>>>> test
         }
 
         public virtual void RegisterDbContexts(IServiceCollection services)
