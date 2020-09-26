@@ -1,12 +1,15 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace Skoruba.IdentityServer4.STS.Identity.ViewModels.Account
 {
-    public class RegisterWithoutUsernameViewModel
+    public class ResetPasswordByUserIdViewModel
     {
         [Required]
-        [EmailAddress]
-        public string Email { get; set; }
+        public string UserId { get; set; }
 
         [Required]
         [StringLength(100, ErrorMessage = "The {0} must be at least {2} and at max {1} characters long.", MinimumLength = 6)]
@@ -17,5 +20,6 @@ namespace Skoruba.IdentityServer4.STS.Identity.ViewModels.Account
         [Compare("Password")]
         public string ConfirmPassword { get; set; }
 
+        public string Code { get; set; }
     }
 }

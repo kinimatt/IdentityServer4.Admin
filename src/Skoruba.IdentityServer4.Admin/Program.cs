@@ -18,8 +18,8 @@ namespace Skoruba.IdentityServer4.Admin
 
         public static async Task Main(string[] args)
         {
-            try
-            {
+            /*try
+            {*/
                 var seed = args.Any(x => x == SeedArgs);
                 if (seed) args = args.Except(new[] { SeedArgs }).ToArray();
 
@@ -35,18 +35,12 @@ namespace Skoruba.IdentityServer4.Admin
                             UserIdentity, UserIdentityRole>(host);
                 }
 
-<<<<<<< HEAD
                 host.Run();
-            }
+            /*}
             catch (Exception ex)
-=======
-            // Uncomment this to seed upon startup, alternatively pass in `dotnet run /seed` to seed using CLI
-             await DbMigrationHelpers.EnsureSeedData<IdentityServerConfigurationDbContext, AdminIdentityDbContext, IdentityServerPersistedGrantDbContext, AdminLogDbContext, AdminAuditLogDbContext, UserIdentity, UserIdentityRole>(host);
-            if (seed)
->>>>>>> test
             {
                 throw ex;
-            }
+            }*/
         }
 
         public static IHostBuilder CreateHostBuilder(string[] args) =>

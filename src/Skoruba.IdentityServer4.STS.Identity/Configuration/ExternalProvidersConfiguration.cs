@@ -9,6 +9,8 @@
         public bool UseFacebookProvider { get; set; }
         public string FacebookClientId { get; set; }
         public string FacebookClientSecret { get; set; }
+        public string FacebookRedirectUri { get; set; }
+        
 
         public bool UseGoogleProvider { get; set; }
         public string GoogleClientId { get; set; }

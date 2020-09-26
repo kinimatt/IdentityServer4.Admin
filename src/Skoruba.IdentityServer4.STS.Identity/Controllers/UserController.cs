@@ -32,6 +32,10 @@ using System.Net.Http;
 using IdentityModel.Client;
 using System.Web;
 using System.Text.Json;
+using System.Collections.Generic;
+using Newtonsoft.Json;
+using Skoruba.IdentityServer4.STS.Identity.ViewModels.ExternalLogin;
+using Microsoft.EntityFrameworkCore;
 
 namespace Skoruba.IdentityServer4.STS.Identity.Controllers
 {
@@ -93,7 +97,8 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
         {
             if (ModelState.IsValid)
             {
-                var cache = new DiscoveryCache(_configuration.GetValue<string>("BaseUrl"));
+               
+                    var cache = new DiscoveryCache(_configuration.GetValue<string>("BaseUrl"));
 
                 var client = _clientFactory.CreateClient("IDS");
 
@@ -105,12 +110,12 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
 
                 var tokenResponse = await client.RequestPasswordTokenAsync(new PasswordTokenRequest
                 {
-                    Address = disco.TokenEndpoint, //"https://demo.identityserver.io/connect/token",
+                    Address = disco.TokenEndpoint,
 
                     ClientId = "xframework_client",
                     ClientSecret = "secret",
-                    Scope = "xframework_api openid offline_access",
-
+                    Scope = "xframework_api openid offline_access profile email roles xframeworkid",
+ 
                     UserName = model.Username,
                     Password = model.Password
                 });
@@ -119,7 +124,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
                 {
                     return BadRequest(tokenResponse.Error);
                 }
-
+                
                 return Ok(new{ access_token = tokenResponse.AccessToken, expires_in = tokenResponse.ExpiresIn, refresh_token = tokenResponse.RefreshToken  });
 
 
@@ -131,7 +136,81 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
                     return Ok(tokenResponse);// Ok(new ProfileViewModel(result, tokenResponse));
                 }*/
             }
-            return BadRequest("Invalid username or password.");
+            return BadRequest("Invalid username or password." + model.Username + model.Password);
+        }
+
+        /// <summary>
+        /// Entry point into the login workflow
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        public async Task<IActionResult> LoginPhoneNo(CustomLoginPhoneNoModel model)
+        {
+            if (ModelState.IsValid)
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, _configuration.GetValue<string>("ValidateOtpUrl") + "?mobile=" + model.PhoneNo + "&transactionCode=" + model.TransactionCode + "&otp=" + model.Otp + "&secret=" + _configuration.GetValue<string>("UserAPISecret"));
+                //request.Headers.Add("X-Validate-V3", new List<string>() { this.HttpContext.Request.Headers["X-Validate-V3"] });
+                //request.Headers.Add("X-Validate-V2", new List<string>() { this.HttpContext.Request.Headers["X-Validate-V2"] });
+                //request.Headers.Add("X-Forwarded-For", new List<string>() { this.HttpContext.Request.Headers["X-Forwarded-For"] });
+                //request.Headers.Add("X-Forwarded-For-IP", new List<string>() { this.HttpContext.Request.Headers["X-Forwarded-For"] });
+
+                var client1 = _clientFactory.CreateClient();
+
+                var response = await client1.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var user = await _userManager.Users.FirstOrDefaultAsync(x => x.PhoneNumber == model.PhoneNo);
+                    if (user == null)
+                    {
+                        return BadRequest("Invalid phone no");
+                    }
+
+                    var cache = new DiscoveryCache(_configuration.GetValue<string>("BaseUrl"));
+
+                    var client = _clientFactory.CreateClient("IDS");
+
+                    var disco = await cache.GetAsync(); //await client.GetDiscoveryDocumentAsync(_configuration.GetValue<string>("BaseUrl"));
+                    if (disco.IsError)
+                    {
+                        return BadRequest(disco.Error);
+                    }
+
+                    var tokenResponse = await client.RequestPasswordTokenAsync(new PasswordTokenRequest
+                    {
+                        Address = disco.TokenEndpoint,
+
+                        ClientId = "xframework_client",
+                        ClientSecret = "secret",
+                        Scope = "xframework_api openid offline_access profile email roles xframeworkid",
+
+                        UserName = user.UserName,
+                        //Password = user.Password
+                    });
+
+                    if (tokenResponse.IsError)
+                    {
+                        return BadRequest(tokenResponse.Error);
+                    }
+
+                    return Ok(new { access_token = tokenResponse.AccessToken, expires_in = tokenResponse.ExpiresIn, refresh_token = tokenResponse.RefreshToken });
+
+
+                    /*
+                       var result = await _userManager.FindByNameAsync(model.Username);
+
+                       if (result != null && await _userManager.CheckPasswordAsync(result, model.Password))
+                       {
+                           return Ok(tokenResponse);// Ok(new ProfileViewModel(result, tokenResponse));
+                       }*/
+                }
+            
+            else
+            {
+                return BadRequest(response.ReasonPhrase);
+            }
+        }
+            return BadRequest("Invalid phone no or otp." + model.PhoneNo );
         }
 
 
@@ -145,9 +224,11 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
         {
             if (!string.IsNullOrWhiteSpace(refreshToken))
             {
+                var cache = new DiscoveryCache(_configuration.GetValue<string>("BaseUrl"));
+
                 var client = _clientFactory.CreateClient("IDS");
 
-                var disco = await client.GetDiscoveryDocumentAsync("https://localhost:5001");
+                var disco = await cache.GetAsync(); //await client.GetDiscoveryDocumentAsync(_configuration.GetValue<string>("BaseUrl"));
                 if (disco.IsError)
                 {
                     return BadRequest(disco.Error);
@@ -158,8 +239,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
 
                     ClientId = "xframework_client",
                     ClientSecret = "secret",
-                    Scope = "xframework_api openid offline_access",
-
+                    Scope = "xframework_api openid offline_access profile email roles xframeworkid",
                     RefreshToken = refreshToken
                 });
 
@@ -174,6 +254,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
         }
 
 
+
         /// <summary>
         /// Entry point into the login workflow
         /// </summary>
@@ -183,9 +264,11 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
         {
             if (!string.IsNullOrWhiteSpace(accessToken))
             {
+                var cache = new DiscoveryCache(_configuration.GetValue<string>("BaseUrl"));
+
                 var client = _clientFactory.CreateClient("IDS");
 
-                var disco = await client.GetDiscoveryDocumentAsync("https://localhost:5001");
+                var disco = await cache.GetAsync(); //await client.GetDiscoveryDocumentAsync(_configuration.GetValue<string>("BaseUrl"));
                 if (disco.IsError)
                 {
                     return BadRequest(disco.Error);
@@ -224,7 +307,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
             {
                 return BadRequest("Invalid userid or code");
             }
-
+            //code = HttpUtility.UrlDecode(code);
             var result = await _userManager.ConfirmEmailAsync(user, code);
 
             if (result.Succeeded)
@@ -244,7 +327,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
             {
                 var user = await _userManager.FindByEmailAsync(model.Email);
 
-                if (user == null || !await _userManager.IsEmailConfirmedAsync(user))
+                if (user == null) //|| !await _userManager.IsEmailConfirmedAsync(user)
                 {
                     ModelState.AddModelError(string.Empty, _localizer["EmailNotFound"]);
 
@@ -267,19 +350,25 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
      
         [HttpPost]
         [AllowAnonymous]
-        public async Task<IActionResult> ResetPassword(ResetPasswordViewModel model)
+        public async Task<IActionResult> ResetPassword(ResetPasswordByUserIdViewModel model)
         {
             if (!ModelState.IsValid)
             {
                 return BadRequest(model);
             }
-            var user = await _userManager.FindByEmailAsync(model.Email);
+            var user = await _userManager.FindByIdAsync(model.UserId);
             if (user == null)
             {
                 return BadRequest("Invalid email");
             }
-            var result = await _userManager.ResetPasswordAsync(user, model.Code, model.Password);
+            var result = await _userManager.ResetPasswordAsync(user, HttpUtility.UrlDecode(model.Code), model.Password);
             if (result.Succeeded)
+            {
+                return Ok("Success");
+            }
+
+            var result1 = await _userManager.ResetPasswordAsync(user, model.Code, model.Password);
+            if (result1.Succeeded)
             {
                 return Ok("Success");
             }
@@ -289,40 +378,85 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
             return BadRequest(result);
         }
 
-     
         [HttpPost]
         [AllowAnonymous]
-        public async Task<IActionResult> Register(RegisterWithoutUsernameViewModel model)
+        public async Task<IActionResult> SendOtp(string Mobile)
+        {
+
+            if (Mobile.Length!=10) return BadRequest("Mobile not 10 digitgs");
+
+
+            var request = new HttpRequestMessage(HttpMethod.Get, _configuration.GetValue<string>("ValidateOtpUrl") + "?mobile=" + Mobile + "&secret=" + _configuration.GetValue<string>("UserAPISecret"));
+            request.Headers.Add("X-Validate-V3", new List<string>() { this.HttpContext.Request.Headers["X-Validate-V3"] });
+            request.Headers.Add("X-Validate-V2", new List<string>() { this.HttpContext.Request.Headers["X-Validate-V2"] });
+            request.Headers.Add("X-Forwarded-For", new List<string>() { this.HttpContext.Request.Headers["X-Forwarded-For"] });
+            request.Headers.Add("X-Forwarded-For-IP", new List<string>() { this.HttpContext.Request.Headers["X-Forwarded-For"] });
+
+            var client1 = _clientFactory.CreateClient();
+
+            var response = await client1.SendAsync(request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return Ok(response.ReasonPhrase);
+            }
+            // If we got this far, something failed, redisplay form
+            return BadRequest(response.ReasonPhrase);
+        }
+
+        [HttpPost]
+        [AllowAnonymous]
+        public async Task<IActionResult> Register(RegisterWithPhoneNoViewModel model)
         {
             
             if (!ModelState.IsValid) return BadRequest(model);
 
 
-            var user = new TUser
-            {
-                UserName = model.Email,
-                Email = model.Email
-            };
+          
+            var request = new HttpRequestMessage(HttpMethod.Get, _configuration.GetValue<string>("ValidateOtpUrl") + "?mobile=" + model.PhoneNo + "&transactionCode=" + model.TransactionCode + "&otp=" + model.Otp + "&secret=" + _configuration.GetValue<string>("UserAPISecret"));
+            //request.Headers.Add("X-Validate-V3", new List<string>() { this.HttpContext.Request.Headers["X-Validate-V3"] });
+            //request.Headers.Add("X-Validate-V2", new List<string>() { this.HttpContext.Request.Headers["X-Validate-V2"] });
+            //request.Headers.Add("X-Forwarded-For", new List<string>() { this.HttpContext.Request.Headers["X-Forwarded-For"] });
+            //request.Headers.Add("X-Forwarded-For-IP", new List<string>() { this.HttpContext.Request.Headers["X-Forwarded-For"] });
 
-            var result = await _userManager.CreateAsync(user, model.Password);
+            var client1 = _clientFactory.CreateClient();
+
+            var response = await client1.SendAsync(request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                if (model.SSOType=="facebook")
+                {
+                    var rr = await Facebook(new FacebookAuthViewModel() { Code = model.SSOCode, AccessToken = model.SSOAccessToken });
+                    if (rr == null)
+                    {
+                        return BadRequest("Invalid facebook token.");
+                    }
+                }
+
+                var user = new TUser
+                {
+                    UserName = model.Email,
+                    Email = model.Email,
+                    PhoneNumber = model.PhoneNo,
+                    PhoneNumberConfirmed = true
+                };
+
+                var result = await _userManager.CreateAsync(user, model.Password);
             if (result.Succeeded)
             {
-              
-
-
-                var request = new HttpRequestMessage(HttpMethod.Get, _configuration.GetValue<string>("UserAPIUrl") + "?");
+                var requestq = new HttpRequestMessage(HttpMethod.Get, _configuration.GetValue<string>("UserAPIUrl") + "?id=" + user.Id + "&email=" + model.Email + "&mobile=" + model.PhoneNo + "&secret=" + _configuration.GetValue<string>("UserAPISecret"));
                 //request.Headers.Add("Accept", "application/vnd.github.v3+json");
                 //request.Headers.Add("User-Agent", "HttpClientFactory-Sample");
 
-                var client = _clientFactory.CreateClient();
+               
+                var response1 = await client1.SendAsync(requestq);
 
-                var response = await client.SendAsync(request);
-
-                if (response.IsSuccessStatusCode)
+                if (response1.IsSuccessStatusCode)
                 {
-                    using var responseStream = await response.Content.ReadAsStreamAsync();
+                    using var responseStream = await response1.Content.ReadAsStreamAsync();
 
-                    var profile = await JsonSerializer.DeserializeAsync<RegisterResponseViewModel>(responseStream);
+                    var profile = await System.Text.Json.JsonSerializer.DeserializeAsync<RegisterResponseViewModel>(responseStream);
 
                     var code = await _userManager.GenerateEmailConfirmationTokenAsync(user);
                     code = HttpUtility.UrlEncode(code);
@@ -331,8 +465,42 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
                     await _emailSender.SendEmailAsync(model.Email, _localizer["ConfirmEmailTitle"], _localizer["ConfirmEmailBody", HtmlEncoder.Default.Encode(callbackUrl)]);
                     //await _signInManager.SignInAsync(user, isPersistent: false);
 
+                    var cache = new DiscoveryCache(_configuration.GetValue<string>("BaseUrl"));
 
-                    return Ok(profile);
+                    var client = _clientFactory.CreateClient("IDS");
+
+                    var disco = await cache.GetAsync(); //await client.GetDiscoveryDocumentAsync(_configuration.GetValue<string>("BaseUrl"));
+                    if (disco.IsError)
+                    {
+                        await _userManager.DeleteAsync(user);
+                        return StatusCode(504);
+                    }
+                    
+                    string[] roles = new string[]{"User","Vendor"};
+                    await _userManager.AddToRolesAsync(user, roles);
+                    await _userManager.AddClaimAsync(user, new Claim("xframeworkid", profile.id.ToString()));
+
+                    var tokenResponse = await client.RequestPasswordTokenAsync(new PasswordTokenRequest
+                    {
+                        Address = disco.TokenEndpoint, 
+
+                        ClientId = "xframework_client",
+                        ClientSecret = "secret",
+                        Scope = "xframework_api openid offline_access profile email roles xframeworkid",
+                        UserName = model.Email,
+                        Password = model.Password
+                    });
+
+                    if (tokenResponse.IsError)
+                    {
+                        await _userManager.DeleteAsync(user);
+                        return StatusCode(504);
+                    }
+
+                    profile.accessToken = tokenResponse.AccessToken;
+                    profile.expiresIn = tokenResponse.ExpiresIn.ToString();
+                    profile.refreshToken = tokenResponse.RefreshToken;
+                    return Ok(new {accessToken = tokenResponse.AccessToken, expiresIn = tokenResponse.ExpiresIn,refreshToken = tokenResponse.RefreshToken});
                 }
                 else
                 {
@@ -346,6 +514,10 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
 
             // If we got this far, something failed, redisplay form
             return BadRequest(result);
+            }
+            // If we got this far, something failed, redisplay form
+            return BadRequest(response.ReasonPhrase);
+
         }
 
         [HttpPost]
@@ -376,15 +548,17 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
         /// <summary>
         /// Entry point into the login workflow
         /// </summary>
-        [HttpGet]
+        [HttpPost]
         [AllowAnonymous]
         public async Task<IActionResult> Validate(string accessToken)
         {
             if (!string.IsNullOrWhiteSpace(accessToken))
             {
+                var cache = new DiscoveryCache(_configuration.GetValue<string>("BaseUrl"));
+
                 var client = _clientFactory.CreateClient("IDS");
 
-                var disco = await client.GetDiscoveryDocumentAsync("https://localhost:5001");
+                var disco = await cache.GetAsync(); //await client.GetDiscoveryDocumentAsync(_configuration.GetValue<string>("BaseUrl"));
                 if (disco.IsError)
                 {
                     return BadRequest(disco.Error);
@@ -402,7 +576,7 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
                     return BadRequest(tokenResponse.Error);
                 }
 
-                return Ok("Success");
+                return Ok(tokenResponse);
             }
             return BadRequest("Invaid token");
         }
@@ -551,6 +725,96 @@ namespace Skoruba.IdentityServer4.STS.Identity.Controllers
             }
 
             return vm;
+        }
+
+        // POST api/externalauth/facebook
+        private async Task<FacebookUserData> Facebook(FacebookAuthViewModel model)
+        {
+            var externalProviderConfiguration = _configuration.GetSection(nameof(ExternalProvidersConfiguration)).Get<ExternalProvidersConfiguration>();
+
+            HttpClient Client = _clientFactory.CreateClient();
+
+            // 1.generate an app access token
+            var appAccessTokenResponse = await Client.GetStringAsync($"https://graph.facebook.com/oauth/access_token?client_id={externalProviderConfiguration.FacebookClientId}&client_secret={externalProviderConfiguration.FacebookClientSecret}&grant_type=client_credentials");
+            var appAccessToken = JsonConvert.DeserializeObject<FacebookAppAccessToken>(appAccessTokenResponse);
+          
+
+            if (!string.IsNullOrWhiteSpace(model.Code))
+            {
+                // 1.generate an app access token
+                var userAccessTokenResponse = await Client.GetStringAsync($"https://graph.facebook.com/v7.0/oauth/access_token?client_id={externalProviderConfiguration.FacebookClientId}&redirect_uri={externalProviderConfiguration.FacebookRedirectUri}&client_secret={externalProviderConfiguration.FacebookClientSecret}&code={model.Code}");
+                var userAccessToken = JsonConvert.DeserializeObject<FacebookAppAccessToken>(appAccessTokenResponse);
+                model.AccessToken = userAccessToken.AccessToken;
+            }
+
+            if (!string.IsNullOrWhiteSpace(model.AccessToken))
+            {
+
+                // 2. validate the user access token
+                var userAccessTokenValidationResponse = await Client.GetStringAsync($"https://graph.facebook.com/debug_token?input_token={model.AccessToken}&access_token={appAccessToken.AccessToken}");
+                var userAccessTokenValidation = JsonConvert.DeserializeObject<FacebookUserAccessTokenValidation>(userAccessTokenValidationResponse);
+
+                if (!userAccessTokenValidation.Data.IsValid)
+                {
+                    return null;
+                }
+            }
+
+            // 3. we've got a valid token so we can request user data from fb
+            var userInfoResponse = await Client.GetStringAsync($"https://graph.facebook.com/v2.8/me?fields=id,email,first_name,last_name,name,gender,locale,birthday,picture&access_token={model.AccessToken}");
+            var userInfo = JsonConvert.DeserializeObject<FacebookUserData>(userInfoResponse);
+
+            return userInfo;
+        }
+
+        // POST api/externalauth/facebook
+        private async Task<GoogleUserData> Google(GoogleAuthViewModel model)
+        {
+            /*
+            // 1.generate an app token id
+            var userAccessTokenValidationResponse = await Client.GetStringAsync($"https://oauth2.googleapis.com/tokeninfo?id_token={model.id_token}");
+            var userInfo = JsonConvert.DeserializeObject<GoogleUserData>(userAccessTokenValidationResponse);
+
+            if (!userInfo.IsVerified || _googleAuthSettingsAccessor.ClientId != userInfo.ClientId)
+            {
+                return BadRequest(Errors.AddErrorToModelState("login_failure", "Invalid google id token.", ModelState));
+            }
+
+            // 2. ready to create the local user account (if necessary) and jwt
+            var user = await _userManager.FindByEmailAsync(userInfo.Email);
+
+            if (user == null)
+            {
+                var appUser = new AppUser
+                {
+                    FirstName = userInfo.FirstName,
+                    LastName = userInfo.LastName,
+                    GoogleId = userInfo.Id,
+                    Email = userInfo.Email,
+                    UserName = userInfo.Email,
+                    PictureUrl = userInfo.Picture
+                };
+
+                var result = await _userManager.CreateAsync(appUser, Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Substring(0, 8));
+
+                if (!result.Succeeded) return new BadRequestObjectResult(Errors.AddErrorsToModelState(result, ModelState));
+
+                await _appDbContext.Customers.AddAsync(new Customer { IdentityId = appUser.Id, Location = "", Locale = userInfo.Locale, Gender = "" });
+                await _appDbContext.SaveChangesAsync();
+            }
+
+            // generate the jwt for the local user...
+            var localUser = await _userManager.FindByNameAsync(userInfo.Email);
+
+            if (localUser == null)
+            {
+                return BadRequest(Errors.AddErrorToModelState("login_failure", "Failed to create local user account.", ModelState));
+            }
+
+            var jwt = await Tokens.GenerateJwt(_jwtFactory.GenerateClaimsIdentity(localUser.UserName, localUser.Id),
+              _jwtFactory, localUser.UserName, _jwtOptions, new JsonSerializerSettings { Formatting = Formatting.Indented });
+            */
+            return null;
         }
     }
 }

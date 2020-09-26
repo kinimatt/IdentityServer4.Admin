@@ -7,9 +7,14 @@ namespace Skoruba.IdentityServer4.STS.Identity.ViewModels.Account
 {
     public class RegisterResponseViewModel
     {
-        public string Email { get; set; }
-        public string UserId { get; set; }
-        public string VendorId { get; set; }
+        public int id { get; set; }
+     
+        public string email { get; set; }
+        public string userId { get; set; }
+        public string vendorId { get; set; }
+        public string accessToken { get; set; }
+        public string expiresIn { get; set; }
+        public string refreshToken { get; set; }
 
     }
 }

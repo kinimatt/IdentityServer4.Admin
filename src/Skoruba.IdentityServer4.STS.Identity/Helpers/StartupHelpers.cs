@@ -308,35 +308,36 @@ namespace Skoruba.IdentityServer4.STS.Identity.Helpers
             IConfiguration configuration)
         {
             var externalProviderConfiguration = configuration.GetSection(nameof(ExternalProvidersConfiguration)).Get<ExternalProvidersConfiguration>();
-
-            if (externalProviderConfiguration.UseGitHubProvider)
-            {
-                authenticationBuilder.AddGitHub(options =>
+            if(externalProviderConfiguration!=null){
+                if (externalProviderConfiguration.UseGitHubProvider)
                 {
-                    options.ClientId = externalProviderConfiguration.GitHubClientId;
-                    options.ClientSecret = externalProviderConfiguration.GitHubClientSecret;
-                    options.Scope.Add("user:email");
-                });
-            }
+                    authenticationBuilder.AddGitHub(options =>
+                    {
+                        options.ClientId = externalProviderConfiguration.GitHubClientId;
+                        options.ClientSecret = externalProviderConfiguration.GitHubClientSecret;
+                        options.Scope.Add("user:email");
+                    });
+                }
 
-            if (externalProviderConfiguration.UseFacebookProvider)
-            {
-                authenticationBuilder.AddFacebook(options =>
+                if (externalProviderConfiguration.UseFacebookProvider)
                 {
-                    options.ClientId = externalProviderConfiguration.FacebookClientId;
-                    options.ClientSecret = externalProviderConfiguration.FacebookClientSecret;
-                    //options.Scope.Add("user:email");
-                });
-            }
+                    authenticationBuilder.AddFacebook(options =>
+                    {
+                        options.ClientId = externalProviderConfiguration.FacebookClientId;
+                        options.ClientSecret = externalProviderConfiguration.FacebookClientSecret;
+                        options.Scope.Add("user:email");
+                    });
+                }
 
-            if (externalProviderConfiguration.UseGoogleProvider)
-            {
-                authenticationBuilder.AddGoogle(options =>
+                if (externalProviderConfiguration.UseGoogleProvider)
                 {
-                    options.ClientId = externalProviderConfiguration.GoogleClientId;
-                    options.ClientSecret = externalProviderConfiguration.GoogleClientSecret;
-                    //options.Scope.Add("user:email");
-                });
+                    authenticationBuilder.AddGoogle(options =>
+                    {
+                        options.ClientId = externalProviderConfiguration.GoogleClientId;
+                        options.ClientSecret = externalProviderConfiguration.GoogleClientSecret;
+                        options.Scope.Add("user:email");
+                    });
+                }
             }
         }
 
